@@ -25,18 +25,6 @@ static struct wd_drv_dio_if hw_dio_tbl[] = { {
 		.recv = dummy_get_from_dio_q,
 		.flush = dummy_flush,
 	}, {
-		.hw_type = HISI_QM_API_VER_BASE UACCE_API_VER_NOIOMMU_SUBFIX,
-		.open = hisi_qm_set_queue_dio,
-		.close = hisi_qm_unset_queue_dio,
-		.send = hisi_qm_add_to_dio_q,
-		.recv = hisi_qm_get_from_dio_q,
-	}, {
-		.hw_type = HISI_QM_API_VER2_BASE UACCE_API_VER_NOIOMMU_SUBFIX,
-		.open = hisi_qm_set_queue_dio,
-		.close = hisi_qm_unset_queue_dio,
-		.send = hisi_qm_add_to_dio_q,
-		.recv = hisi_qm_get_from_dio_q,
-	}, {
 		.hw_type = HISI_QM_API_VER_BASE,
 		.open = hisi_qm_set_queue_dio,
 		.close = hisi_qm_unset_queue_dio,
@@ -101,14 +89,15 @@ void *drv_reserve_mem(struct wd_queue *q, size_t size)
 		return NULL;
 	}
 
-	if (q->dev_flags & UACCE_DEV_NOIOMMU) {
+	if (q->dev_flags & UACCE_DEV_PASID) {
+		q->ss_pa = q->ss_va;
+	} else {
 		errno = (long)ioctl(q->fd, UACCE_CMD_GET_SS_DMA, &q->ss_pa);
 		if (errno) {
 			WD_ERR("get PA fail!\n");
 			return NULL;
 		}
-	} else
-		q->ss_pa = q->ss_va;
+	}
 
 	return q->ss_va;
 }

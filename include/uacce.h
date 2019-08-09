@@ -14,8 +14,6 @@
 /**
  * UACCE Device Attributes:
  *
- * NOIOMMU: the device has no IOMMU support
- *	can do share sva, but no map to the dev
  * PASID: the device has IOMMU which support PASID setting
  *	can do share sva, mapped to dev per process
  * FAULT_FROM_DEV: the device has IOMMU which can do page fault request
@@ -23,18 +21,10 @@
  * SVA: full function device
  * SHARE_DOMAIN: no PASID, can do share sva only for one process and the kernel
  */
-#define UACCE_DEV_NOIOMMU		(1 << 0)
-#define UACCE_DEV_PASID			(1 << 1)
-#define UACCE_DEV_FAULT_FROM_DEV	(1 << 2)
+#define UACCE_DEV_PASID			(1 << 0)
+#define UACCE_DEV_FAULT_FROM_DEV	(1 << 1)
 #define UACCE_DEV_SVA		(UACCE_DEV_PASID | UACCE_DEV_FAULT_FROM_DEV)
 #define UACCE_DEV_SHARE_DOMAIN	(0)
-
-/* uacce mode of the driver */
-#define UACCE_MODE_NOUACCE	0 /* don't use uacce */
-#define UACCE_MODE_UACCE	1 /* use uacce exclusively */
-#define UACCE_MODE_NOIOMMU	2 /* use uacce noiommu mode */
-
-#define UACCE_API_VER_NOIOMMU_SUBFIX	"_noiommu"
 
 #define UACCE_QFR_NA ((unsigned long)-1)
 enum uacce_qfrt {
