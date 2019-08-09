@@ -39,7 +39,6 @@
 #define UACCE_QFR_NA ((unsigned long)-1)
 enum uacce_qfrt {
 	UACCE_QFRT_MMIO = 0,	/* device mmio region */
-	UACCE_QFRT_DKO,		/* device kernel-only */
 	UACCE_QFRT_DUS,		/* device user share */
 	UACCE_QFRT_SS,		/* static share memory */
 	UACCE_QFRT_MAX,
