@@ -5,8 +5,6 @@
 #include <linux/types.h>
 #include <linux/ioctl.h>
 
-#define UACCE_CLASS_NAME	"uacce"
-#define UACCE_DEV_ATTRS		"attrs"
 #define UACCE_CMD_SHARE_SVAS	_IO('W', 0)
 #define UACCE_CMD_START		_IO('W', 1)
 #define UACCE_CMD_GET_SS_DMA	_IOR('W', 2, unsigned long)
@@ -23,16 +21,13 @@
  * SVA: full function device
  * SHARE_DOMAIN: no PASID, can do share sva only for one process and the kernel
  */
-#define UACCE_DEV_NOIOMMU		(1 << 0)
-#define UACCE_DEV_PASID			(1 << 1)
-#define UACCE_DEV_FAULT_FROM_DEV	(1 << 2)
-#define UACCE_DEV_SVA		(UACCE_DEV_PASID | UACCE_DEV_FAULT_FROM_DEV)
-#define UACCE_DEV_SHARE_DOMAIN	(0)
-
-/* uacce mode of the driver */
-#define UACCE_MODE_NOUACCE	0 /* don't use uacce */
-#define UACCE_MODE_UACCE	1 /* use uacce exclusively */
-#define UACCE_MODE_NOIOMMU	2 /* use uacce noiommu mode */
+enum {
+        UACCE_DEV_SHARE_DOMAIN = 0x0,
+        UACCE_DEV_PASID = 0x1,
+        UACCE_DEV_FAULT_FROM_DEV = 0x2,
+        UACCE_DEV_SVA = UACCE_DEV_PASID | UACCE_DEV_FAULT_FROM_DEV,
+        UACCE_DEV_NOIOMMU = 0x4,
+};
 
 #define UACCE_API_VER_NOIOMMU_SUBFIX	"_noiommu"
 
