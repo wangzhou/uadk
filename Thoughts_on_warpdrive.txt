@@ -1,0 +1,63 @@
+Thoughts on Warpdrive
+
+Scheduler
+---------
+
+The scheduler of warpdrive is focus on two things. One is to occupy more
+hardware resources to get higher performance with hardware accelerator.
+The other is to allocate hardware rsource that is close to application.
+
+I have a few conserns on allocating hardware resources by warpdrive.
+
+Case 1.
+We assume 64 instances could be supported by hardware at a time. If hundreds
+and thousands of requests come at a time, only 64 processes could get the
+resources.
+
+Let's assume there're 100 processes related on showing pictures. And there're
+10 processes related to video decoding. Because compression/decompression isn't
+block operation. If there're no available hardware resources, we must bypass
+the hardware accelerator and use CPU to do the compression/decompression.
+Otherwise, applications will stall until getting hardware resource. The stall
+operation could hurt the performance. So it's not acceptable.
+
+So we can't guarantee the processes that are related to video decoding could
+get the hardware resources if there's no more resources.
+
+From this case, we could deduce more.
+1) Since both software and hardware could do the compression/decompression.
+We use the policy to switch to software if hardware resource is unavailable.
+But if we want to implement some vector calculation in hardware accelerator,
+the operation is hardware dependant. We hope that application should always
+allocate enough hardware resource. If the resource is unavailbe, the
+application should be stalled. The we get a requirement that accessing
+hardware resource by warpdrive shoud be block. Currently, wd_request_queue()
+only supports non-block operation.
+
+2) If there're a lot of applications that use hardware accelerator for
+a short time, we hope they could request and release hardware resources
+as soon as possible. Now we provide wd_request_queue(), wd_send(), wd_recv(),
+wd_recv_sync() and wd_release_queue().
+
+If developer allocates resource earlier and the applications do not always
+using hardware, it costs the wastage on hardware resources. Maybe we could
+provide some APIs to embed wd_request_queue()/wd_release_queue() into
+wd_send()/wd_recv() operation. Then the granularity could be smaller. And
+more applications should share the hardware resources much effectively.
+
+3) From application view, it needs as much as hardware resources. But resource
+is always limited. We need to know which application could make use of hardware
+resources more effectively. So we need to accumulate this kind of information,
+such as the number of requests, hardware utilization rate of the process life
+cycle, CPU utilization rate of the process life cycle, process name, and so on.
+With this kind of information, administrator could know which application makes
+use of hardware resources more effectively. It could get more hardware
+resources to improve performance.
+
+4) Although we could make use of wd_sched(). But it needs to change code for
+more or less queue. It's not convient to administrator to turn the performance.
+It's better to provide a method to adjust the queue as taskset. If so, we need
+a daemon to record the requirement on queue number.
+
+-------
+not end
