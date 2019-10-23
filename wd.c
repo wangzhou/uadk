@@ -115,9 +115,9 @@ static int _get_dev_info(struct _dev_info *dinfo)
 	_get_str_attr(dinfo, "algorithms", dinfo->algs, MAX_ATTR_STR_SIZE);
 
 	dinfo->qfrs_offset[UACCE_QFRT_MMIO] = _get_int_attr(dinfo, "qfrt_mmio_size");
-	dinfo->qfrs_offset[UACCE_QFRT_DKO] = _get_int_attr(dinfo, "qfrt_dko_size");
+//	dinfo->qfrs_offset[UACCE_QFRT_DKO] = _get_int_attr(dinfo, "qfrt_dko_size");
 	dinfo->qfrs_offset[UACCE_QFRT_DUS] = _get_int_attr(dinfo, "qfrt_dus_size");
-	dinfo->qfrs_offset[UACCE_QFRT_SS] = _get_int_attr(dinfo, "qfrt_ss_size");
+//	dinfo->qfrs_offset[UACCE_QFRT_SS] = _get_int_attr(dinfo, "qfrt_ss_size");
 
 	/*
 	 * Use available_instances as the base of weight.
@@ -239,6 +239,7 @@ int wd_request_queue(struct wd_queue *q)
 
 	snprintf(q->dev_path, PATH_STR_SIZE, "%s/%s", "/dev", dev->name);
 	q->fd = open(q->dev_path, O_RDWR | O_CLOEXEC);
+	WD_ERR("open %s, q->fd=%d\n", q->dev_path, q->fd);
 	if (q->fd == -1) {
 		WD_ERR("fail to open %s\n", q->dev_path);
 		ret = -ENODEV;
@@ -277,6 +278,10 @@ err_with_dev:
 void wd_release_queue(struct wd_queue *q)
 {
 	drv_close(q);
+
+	WD_ERR("test no close %s, q->fd=%d\n", q->dev_path, q->fd);
+	while(1);
+
 	close(q->fd);
 	free(q->dev_info);
 }
