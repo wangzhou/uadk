@@ -1,12 +1,12 @@
 
 # Changes on Warpdrive
 
-## 1. Basic thoughts on the changes
+## 1. Basic thoughts
 
-Since more and more communication interfaces are appended into warpdrive library, the layer of communication interface is a bit thicker. And it's only focused on Hisilicon hardware. Maybe it's not good enough to other vendor's hardware. Kenneth suggests to move this kind of interface out of warpdrive library. So warpdrive could be focus on handling address. It could benefit all vendors.
+List the usage case of all scenarios. Try to simpilify the warpdrive. "UACCE_MODE_NOUACCE" mode is ignored since warpdrive can't work without UACCE.
 
 
-## 2. Obsolete communication interfaces
+## 2. Communication Interfaces
 
 ***int wd_send(struct wd_queue \*q, void \*req);***
 
@@ -20,7 +20,7 @@ It's used to receive data from hardware to user apps. Address are mapped in this
 
 It's used to receive data from hardware to user apps. Address are mapped in this function.
 
-Although these communication interfaces are obsolete, "wd_adapter.c" still exists. We need to coalesce different hardware implementations into warpdrive library. QM is just an implementation of Hisilicon.  
+Since these communication interfaces are based on *struct wd_queue*, move them out of warpdrive is not easy to maintain. Suggest to keep them. But do not suggest to append any more interfaces for communication.
 
 
 ## 3. Addressing interfaces
@@ -51,6 +51,7 @@ struct wd_queue {
   void *ss_pa;  
 };  
 
+And suggest to rename "ss_pa" to "ss_dma". "ss_pa" is used to fill DMA descriptor. In NOIOMMU scenario, "ss_pa" is physical address. In SVA or Share Domain scenario, "ss_pa" is IOVA. So "ss_pa" is easy to make user confusion.
 
 ### 3.2 Obsolete Interfaces
 
@@ -63,29 +64,92 @@ It's used to map qfile region to user space. It's just fill "q->fd" and "q->qfrs
 It's used to destroy the qfile region by unmap(). It seems that we can use munmap() directly.  
 
 
-### 3.3 Merging Interfaces
+### 3.3 NOIOMMU Scenario
 
-Actually there're 3 modes in UACCE framework. They're "SVA", "SHARE_DOMAIN" and "NOIOMMU". Whatever user needs or not, wd_request_queue() maps all qfile regions to user space. This behavior could simplify the operation in user space. And we can use the same idea on coalescing those APIs in warpdrive library.
+#### 3.3.1 NOIOMMU Interfaces
 
-If only "NOIOMMU" mode is used in user apps, wd_reserve_memory() could allocate memory from SMM area. If "SVA" or "SHARE_DOMAIN" mode is used in user apps, malloc() is used to allocate memory. We could merge these two different behavior into one new interface, "wd_alloc_mem()".
+In the NOIOMMU scenario, physical address is used in DMA transaction. Since scatter/gather mode isn't enabled, DMA needs continuous memory. Kernel has to reserve a chunk of continuous memory. When user process needs physical memory, it has to allocate memory from the reserved memory region. When user wants to integrate warpdrive into some libraries, user has to do an extra memory copy to make DMA working if memory isn't allocated from the reserved memory region.
 
-***void \*wd_alloc_mem(struct wd_queue \*q, size_t size);***
-
-If wd_alloc_mem() is used in "SVA" or "SHARE_DOMAIN" mode, malloc() is used to allocate memory and the VA is stored in "q->ss_va". If wd_alloc_mem() is used in "NOIOMMU" mode, "SS" region is mapped and both VA & PA of "SS" region are stored in queue structure.
-
-wd_alloc_mem() returns the virtual address of allocated memory.
-
-***void wd_free_mem(struct wd_queue \*q, size_t size);***
-
-It's used to free memory. If "NOIOMMU" mode is used in user apps, it unmaps "SS" region. If "SVA" or "SHARE_DOMAIN" mode is used in user apps, free() is used and the VA comes from "q->ss_va".
-
-Then we can drop wd_reserve_memory().
-
-### 3.4 Obscure Interfaces
-
-wd_share_reserved_memory() is used in both "SHARE_DOMAIN" and "NOIOMMU" mode. But I do not understand how to share memory in "SVA" mode. I hope to use a share API to cover all 3 modes.
+The addressing interfaces in NOIOMMU scenario are in below.
 
 
-### 3.5 Obscure Names
+***int wd_request_queue(struct wd_queue \*q);***
 
-"NOIOMMU" is a mode. But in uacce_cmd_share_qfr(), we can know iommu_map() is used even in "NOIOMMU" mode. So the name of "NOIOMMU" is obscure, please change it to the right name.
+***void wd_release_queue(struct wd_queue \*q);***
+
+***void \*wd_reserve_mem(struct wd_queue \*q, size_t size);***
+
+***int wd_share_reserved_memory(struct wd_queue \*q, struct wd_queue \*target_q);***
+
+***int wd_get_pa_from_va(struct wd_queue \*q, void \*va);***
+
+***int wd_get_va_from_pa(struct wd_queue \*q, void \*pa);***
+
+***int smm_init(void \*pt_addr, size_t size, int align_mask);***
+
+***void \*smm_alloc(void \*pt_addr, size_t size);***
+
+***void smm_free(void \*pt_addr, void \*ptr);***
+
+When process A wants to communicate the hardware device, it calls *wd_request_queue()* and *wd_reserve_mem()* in turn to get a chunk of memory.
+
+*wd_reserve_mem()* maps the **UACCE_QFRT_SS** qfile region to process A, so it could only be called once in process A. When process A needs to use multiple memory blocks, it could make use of SMM. *smm_init()* could do the conversion from big chunk memory to smaller memory. Then process A could allocate and free small memory blocks by *smm_alloc()* and *smm_free()*.
+
+When process A prepares the DMA transaction, it needs to convert VA into PA by *wd_get_pa_from_va()*.
+
+When process B wants to access the memory in process A, process B needs to call *wd_request_queue()* and *wd_share_reserved_memory()* in turn. With this functin, memory copy is avoided.
+
+
+#### 3.3.2 Redundant Interfaces
+
+Both *wd_reserve_mem()* and *smm_alloc()* all returns virtual memory. In NOIOMMU scenario, process needs to fill physical address in DMA transaction, *wd_get_pa_from_va()* is important to get physical address. But *wd_get_va_from_pa()* is unnecessary. We could remove it to simplify the code.
+
+
+#### 3.3.3 Potential Issues
+
+*wd_reserve_mem()* maps the **UACCE_QFRT_SS** qfile region to process A. And *wd_share_reserved_memory()* gets the **UACCE_QFRT_SS** qfile region from process A and maps it to process B. So only the big chunk memory could be shared. If SMM is in use, small memory blocks are used in process A. Process B couldn't understand the small memory blocks. SMM conflicts with multiple process sharing memory in potential.
+
+
+### 3.4 Share Domain Scenario
+
+In the Share Domain scenario, IOVA is used in DMA transaction. DMA observes continuous memory because of IOVA, and it's unnecessary to reserve any memory in kernel. So user process could allocate or get memory from anywhere.
+
+The addressing interfaces in Share Domain scenario are in below.
+
+***int wd_request_queue(struct wd_queue \*q);***
+
+***void wd_release_queue(struct wd_queue \*q);***
+
+***void \*wd_reserve_mem(struct wd_queue \*q, size_t size);***
+
+***int wd_share_reserved_memory(struct wd_queue \*q, struct wd_queue \*target_q);***
+
+When process A wants to communicate with hardware device, it needs to get a new by *wd_request_queue()*. Process A could get memory by allocation (malloc) or any existed memory. If process A wants to use multiple small memory blocks, it just need to get multiple memory. SMM is unnecessary. And process A doesn't need to map the allocated memory to any qfile region of queue.
+
+When process A shares memory to process B, it maps **UACCE_QFRT_SS** qfile region to process A by *wd_reserve_mem()*. *wd_share_reserved_memory()* gets the **UACCE_QFRT_SS** qfile region from process A and maps it to process B.
+
+
+### 3.5 SVA Scenario
+
+In the SVA scenario, IOVA is used in DMA transaction. DMA observes continuous memory because of IOVA, and it's unnecessary to reserve any memory in kernel. So user process could allocate or get memory from anywhere.
+
+The addressing interfaces in Share Domain scenario are in below.
+
+***int wd_request_queue(struct wd_queue \*q);***
+
+***void wd_release_queue(struct wd_queue \*q);***
+
+When process A wants to communicate with hardware device, it needs to get a new by *wd_request_queue()*. Process A could get memory by allocation (malloc) or any existed memory. If process A wants to use multiple small memory blocks, it just need to get multiple memory. SMM is unnecessary. And process A doesn't need to map the allocated memory to any qfile region of queue.
+
+When process A shares memory to process B, it could rely on the POSIX shared memory API.
+
+
+### 4 Suggestions
+
+*malloc()*, *wd_reserve_mem()* and *smm_alloc()* all returns virtual memory. In **NOIOMMU** scenario, process needs to fill physical address in DMA transaction, *wd_get_pa_from_va()* is important to get physical address. But *wd_get_va_from_pa()* is unnecessary. We could remove it to simplify the code.
+
+SMM is used to manage small memory blocks. Actually there's no benefit to use SMM in Share Domain scenario and SVA scenario. So it's only benefit on **NOIOMMU** scenario.
+
+When multiple processes are sharing memory, the **UACCE_QFRT_SS** qfile region are shared among processes. But process B can't understand the small memory blocks in process A. In the sharing memory case, the whole memory block is prefered. And user process understands how to split memory by manual actually. Do we really need SMM?
+
+
