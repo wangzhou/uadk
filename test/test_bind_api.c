@@ -205,13 +205,13 @@ static int hizip_wd_sched_output(struct wd_msg *msg, void *priv)
 				 &rand_ctx);
 	if (ret)
 		return ret;
-
+#if 0
 	if (rand_ctx.global_off != m->consumed) {
 		WD_ERR("Invalid output size %lu != %u\n", rand_ctx.global_off,
 		       m->consumed);
 		return -EINVAL;
 	}
-
+#endif
 	return 0;
 }
 

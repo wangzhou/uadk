@@ -1,4 +1,4 @@
-AM_CFLAGS=-Wall -O0 -fno-strict-aliasing -I../include
+AM_CFLAGS=-Wall -O0 -fno-strict-aliasing -I../include --static
 
 bin_PROGRAMS=test_hisi_zip test_hisi_zlib test_dummy test_bind_api
 
