@@ -241,12 +241,16 @@ static int run_test(struct test_options *opts)
 		ret = -ENOMEM;
 		goto out_with_msgs;
 	}
+	memset(in_buf, 5, hizip_priv.total_len);
+	memset(in_buf, 0, hizip_priv.total_len);
 
 	out_buf = hizip_priv.out_buf = malloc(hizip_priv.total_len * EXPANSION_RATIO);
 	if (!out_buf) {
 		ret = -ENOMEM;
 		goto out_with_in_buf;
 	}
+	memset(out_buf, 5, hizip_priv.total_len * EXPANSION_RATIO);
+	memset(out_buf, 0, hizip_priv.total_len * EXPANSION_RATIO);
 
 	ret = hizip_test_init(&sched, opts, &test_ops, &hizip_priv);
 	if (ret) {
@@ -292,8 +296,8 @@ int main(int argc, char **argv)
 		.op_type	= DEFLATE,
 		.req_cache_num	= 4,
 		.q_num		= 1,
-		.block_size	= 512000,
-		.total_len	= opts.block_size * 10,
+		.block_size	= 556,
+		.total_len	= opts.block_size * 100,
 	};
 
 	while ((opt = getopt(argc, argv, "hb:k:s:q:")) != -1) {
@@ -336,6 +340,8 @@ int main(int argc, char **argv)
 	 */
 	opts.total_len = (opts.total_len + opts.block_size - 1) /
 			 opts.block_size * opts.block_size;
+
+	fprintf(stderr, "total_len: %ld\n", opts.total_len);
 
 	SYS_ERR_COND(show_help || optind > argc,
 		     "test_bind_api [opts]\n"
