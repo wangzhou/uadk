@@ -27,77 +27,7 @@ Since warpdrive project is mainly focus on accelerator implementations, differen
 
 ## Compression Algorithm Interfaces
 
-### Compression with zlib-ng
-
-zlib-ng is a 3rd zlib implemention. It's compatible with zlib v1.2.11. In order to support multi-architecture platforms, zlib-ng provides the hooks in below.
-
-```
-    #define ZALLOC_STATE(strm, items, size) ...
-    #define ZFREE_STATE(strm, addr) ...
-    #define ZCOPY_STATE(dst, src, size) ...
-    #define ZALLOC_WINDOW(strm, items, size) ...
-    #define TRY_FREE_WINDOW(strm, addr) ...
-    #define DEFLATE_SET_DICTIONARY_HOOK(strm, dict, dict_len) ...
-    #define DEFLATE_GET_DICTIONARY_HOOK(strm, dict, dict_len) ...
-    #define DEFLATE_RESET_KEEP_HOOK(strm) ...
-    #define DEFLATE_END_HOOK(strm) ...
-    #define DEFLATE_PARAMS_HOOK(strm, level, strategy) ...
-    #define DEFLATE_BOUND_ADJUST_COMPLEN(strm, complen, sourcelen) ...
-    #define DEFLATE_NEED_CONSERVATIVE_BOUND(strm) ...
-    #define DEFLATE_HOOK(strm, flush, bstate) ...
-    #define DEFLATE_NEED_CHECKSUM(strm) ...
-    #define DEFLATE_CAN_SET_REPRODUCIBLE(strm, reproducible) ...
-```
-
-Based on current hardware implementation, we could define the warpdrive interfaces for integrating zlib-ng.
-
-***void \*wdzlib_alloc_state(streamp strm, unsigned int items, unsigned int size);***
-
-***void wdzlib_copy_state(void \*dst, const void \*src, unsigned int size);***
-
-***int wdzlib_can_deflate(streamp strm);***
-
-***void wdzlib_deflate_reset(streamp strm, unsigned int size);***
-
-***int wdzlib_deflate_params(streamp strm, int level, int strategy);***
-
-***int wdzlib_deflate(streamp strm, int flush, block_state \*result);***
-
-All these APIs should be implemented in warpdrive. We only reference these APIs in zlib-ng.
-
-
-### Decompression with zlib-ng
-
-zlib-ng provides the hooks in below.
-
-```
-    #define ZALLOC_STATE(strm, items, size) ...
-    #define ZFREE_STATE(strm, addr) ...
-    #define ZCOPY_STATE(dst, src, size) ...
-    #define ZALLOC_WINDOW(strm, items, size) ...
-    #define ZFREE_WINDOW(strm, addr) ...
-    #define INFLATE_RESET_KEEP_HOOK(strm) ...
-    #define INFLATE_PRIME_HOOK(strm, bits, value) ...
-    #define INFLATE_TYPEDO_HOOK(strm, flush) ...
-    #define INFLATE_NEED_CHECKSUM(strm) ...
-    #define INFLATE_NEED_UPDATEWINDOW(strm) ...
-    #define INFLATE_MARK_HOOK(strm) ...
-```
-
-Based on current hardware implementation, we define the warpdrive interfaces for integrating zlib-ng.
-
-***void \*wdzlib_alloc_state(streamp strm, unsigned int items, unsigned int size);***
-
-***void wdzlib_copy_state(void \*dst, const void \*src, unsigned int size);***
-
-***int wdzlib_can_inflate(streamp strm);***
-
-***void wdzlib_inflate_reset(streamp strm, unsigned int size);***
-
-***wd_inflate_action wdzlib_inflate(streamp strm, int flush, int \*ret);***
-
-
-### Compression without zlib-ng
+### Compression
 
 ```
     struct wd_comp_ctx {
@@ -121,7 +51,7 @@ Based on current hardware implementation, we define the warpdrive interfaces for
 ***int wd_comp_end(struct wd_comp_ctx \*ctx);***
 
 
-### Decompression without zlib-ng
+### Decompression
 
 ***int wd_decomp_init(struct wd_comp_ctx \*ctx);***
 
@@ -130,36 +60,72 @@ Based on current hardware implementation, we define the warpdrive interfaces for
 ***int wd_decomp_end(struct wd_comp_ctx \*ctx);***
 
 
+### Support zlib-ng
+
+It's discussed in another document "Thoughts_on_zlib_ng.md". The implementation should be in warpdrive. zlib-ng only calls the exported interfaces in warpdrive.
+
+
 ## Addressing interfaces
 
-### Updating Structures
+### Updating "struct _dev_info"
 
 ```
-struct _dev_info {  
-  int node_id;  
-  int numa_dis;  
-  int iommu_type;  
-  int flags;  
-  ...  
-  unsigned long qfrs_offset[UACCE_QFRT_MAX];  
-};  
+struct _dev_info {
+  int node_id;
+  int numa_dis;
+  int iommu_type;
+  int flags;
+  ...
+  unsigned long qfrs_offset[UACCE_QFRT_MAX];
+};
 ```
 
 Suggest to rename the "_dev_info" to "uacce_dev_info". And suggest to move "uacce_dev_info" from "wd.c" to "wd.h". Most fields in "uacce_dev_info" could be parsed from sysfs node. There's no reason to hide these kinds of information.  
 
+
+### Updating "struct wd_queue"
+
+#### Avoid copy fields from "struct _dev_info"
+
 Some fields in "struct wd_queue" are just copied from "struct _dev_info". Since warpdrive just copy them without changing them, the copy operation is unnecessary at all. So we could simplify the "struct wd_queue" in below.  
 
 ```
-struct wd_queue {  
-  struct uacce_dev_info *dev_info;  
-  int fd;  
-  char dev_path[PATH_STR_SIZE];  
-  void *ss_va;  
-  void *ss_pa;  
-};  
+struct wd_queue {
+  struct uacce_dev_info *dev_info;
+  int fd;
+  char dev_path[PATH_STR_SIZE];
+  void *ss_va;
+  void *ss_pa;
+};
 ```
 
-And suggest to rename "ss_pa" to "ss_dma". "ss_pa" is used to fill DMA descriptor. In NOIOMMU scenario, "ss_pa" is physical address. But in SVA or Share Domain scenario, "ss_pa" is just IOVA. So "ss_pa" is easy to make user confusion.
+#### Rename ss_pa field
+
+And suggest to rename "ss_pa" to "ss_dma". "ss_pa" is used to fill DMA descriptor. In NOIOMMU scenario, "ss_pa" is physical address. But "ss_pa" is just IOVA in SVA scenario. It is easy to make user confusion. The name of "ss_dma" should be better.
+
+
+#### Suggestion on "struct vendor_chan"
+
+Since "struct wd_queue" is allocated out of "wd_request_queue()", suggest vendor allocate "struct vendor_chan" directly. The head of "struct vendor_chan" is "struct wd_queue". Additional hardware informations are stored in higher address. User could use convert pointer type between "struct wd_queue" and "struct vendor_chan".
+
+
+#### Rename "struct wd_queue"
+
+Since QM is not common enough for each vendor, suggest to change the name of "wd_queue" to "wd_chan" for more generic.
+
+
+### Updating "struct wd_drv_dio_if"
+
+#### Clean structure
+
+Since communication interface is abandoned, we don't need to keep "send()" and "recv()" in "struct wd_drv_dio_if" any more.
+
+
+#### Support different algorithms
+
+In original implementation, different vendor devices are registered with "struct wd_drv_dio_if". Now we're moving to support algorithm interfaces, not communication interfaces. But there're may several methods in one algorithm interfaces. If we fill all of the algorithm methods in a structure, it may be huge. It's better to split "struct wd_drv_dio_if" into different algorithm structures.
+
+Maybe vendor only supports a few hardware accelerators. Vendor should only register related algorithm interface.
 
 ### Obsolete Interfaces
 
