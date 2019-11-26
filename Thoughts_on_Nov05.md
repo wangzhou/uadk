@@ -144,11 +144,11 @@ In the SVA scenario, IOVA is used in DMA transaction. DMA observes continuous me
 
 The addressing interfaces in Share Domain scenario are in below.
 
-***int wd_request_queue(struct wd_queue \*q);***
+***int wd_request_channel(struct wd_chan \*ch);***
 
-***void wd_release_queue(struct wd_queue \*q);***
+***void wd_release_channel(struct wd_chan \*ch);***
 
-When a process wants to communicate with hardware device, it needs to get a new by *wd_request_queue()*. The process could get memory by allocation (malloc) or any existed memory. If the process wants to use multiple small memory blocks, it just need to get multiple memory. SMM is unnecessary. And the process doesn't need to map the allocated memory to any qfile region of queue.
+When a process wants to communicate with hardware device, it needs to get a new by *wd_request_channel()*. The process could get memory by allocation (malloc) or any existed memory. If the process wants to use multiple small memory blocks, it just need to get multiple memory. SMM is unnecessary. And the process doesn't need to map the allocated memory to any qfile region of queue.
 
 When a process wants to access the same memory by multiple queues, it could rely on the POSIX shared memory API.
 
@@ -161,15 +161,15 @@ In the Share Domain scenario, IOMMU is enabled but PASID isn't supported by devi
 
 The addressing interfaces in Share Domain scenario are in below.
 
-***int wd_request_queue(struct wd_queue \*q);***
+***int wd_request_channel(struct wd_chan \*ch);***
 
-***void wd_release_queue(struct wd_queue \*q);***
+***void wd_release_channel(struct wd_chan \*ch);***
 
-***void \*wd_reserve_mem(struct wd_queue \*q, size_t size);***
+***void \*wd_reserve_mem(struct wd_chan \*ch, size_t size);***
 
-***int wd_share_reserved_memory(struct wd_queue \*q, struct wd_queue \*target_q);***
+***int wd_share_reserved_memory(struct wd_chan \*ch, struct wd_chan \*target_ch);***
 
-When a process wants to communicate with hardware device, it needs to call *wd_request_queue()* and *wd_reserve_mem()* in turn to get a chunk of memory. If a process wants to use multiple small memory blocks, it just need to get multiple memory by SMM.
+When a process wants to communicate with hardware device, it needs to call *wd_request_channel()* and *wd_reserve_mem()* in turn to get a chunk of memory. If a process wants to use multiple small memory blocks, it just need to get multiple memory by SMM.
 
 Multiple devices could share same memory region in one process. Then the same memory region needs to be shared between multiple devices. Since there's only one IOMMU domain and one process in this scenario, different devices could understand the same memory region. In order to manage the refcount, *wd_share_reserved_memory()* is necessary when Queue B needs to accesses the memory of Queue A.
 
@@ -194,19 +194,19 @@ In the NOIOMMU scenario, physical address is used in DMA transaction. Since scat
 
 The addressing interfaces in NOIOMMU scenario are in below.
 
-***int wd_request_queue(struct wd_queue \*q);***
+***int wd_request_channel(struct wd_chan \*ch);***
 
-***void wd_release_queue(struct wd_queue \*q);***
+***void wd_release_channel(struct wd_chan \*ch);***
 
-***void \*wd_reserve_mem(struct wd_queue \*q, size_t size);***
+***void \*wd_reserve_mem(struct wd_chan \*ch, size_t size);***
 
-***int wd_share_reserved_memory(struct wd_queue \*q, struct wd_queue \*target_q);***
+***int wd_share_reserved_memory(struct wd_chan \*ch, struct wd_chan \*target_ch);***
 
-***int wd_get_pa_from_va(struct wd_queue \*q, void \*va);***
+***int wd_get_pa_from_va(struct wd_chan \*ch, void \*va);***
 
-***int wd_get_va_from_pa(struct wd_queue \*q, void \*pa);***
+***int wd_get_va_from_pa(struct wd_chan \*ch, void \*pa);***
 
-When a process wants to communicate the hardware device, it calls *wd_request_queue()* and *wd_reserve_mem()* in turn to get a chunk of memory.
+When a process wants to communicate the hardware device, it calls *wd_request_channel()* and *wd_reserve_mem()* in turn to get a chunk of memory.
 
 *wd_reserve_mem()* maps the **UACCE_QFRT_SS** qfile region to a process, so it could only be called once in a process.
 
