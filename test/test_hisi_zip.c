@@ -300,6 +300,7 @@ int main(int argc, char *argv[])
 
 	SYS_ERR_COND(show_help || optind > argc,
 		     "test_hisi_zip -[g|z] [-q q_num] < in > out\n");
+	ion_alloc(4096);
 
 	hizip_def(stdin, stdout, alg_type, op_type);
 

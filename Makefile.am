@@ -8,6 +8,7 @@ endif
 
 lib_LTLIBRARIES=libwd.la
 libwd_la_SOURCES=wd.c wd_adapter.c wd.h wd_adapter.h \
+                 ionutils.c ionutils.h \
 		 smm.c smm.h \
 		 bmm.c bmm.h \
 		 wd_sched.c wd_sched.h \
