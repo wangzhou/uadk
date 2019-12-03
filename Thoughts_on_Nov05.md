@@ -1,76 +1,33 @@
 
 # Thoughts on Warpdrive
 
-## Basic thoughts
+## Overview
 
-List the usage case of all scenarios. Try to simpilify the warpdrive. "UACCE_MODE_NOUACCE" mode is ignored since warpdrive can't work without UACCE.
+Warpdrive is designed for hardware accelerator in user-space. From the view of architecture, three kinds of interfaces were defined. They were addressing interfaces, communication interfaces and algorithm interfaces.
 
-There're two kinds of interfaces, communication interfaces and addressing interfaces. Now we're planning to replace communication interfaces by algorithm interfaces.
+Communication interfaces cover the communication between vendor's hardware and user applicantion. And it abstracts the communication behavior as *wd_send()* and *wd_recv()*. Once message is sent to hardware, it's expected to receive a response. From the view of communication, it's the right behavior. From the view of accelerator, it's not exactly true. Maybe user sends multiple messages to hardware and just gets one response from hardware.
 
+We can just move the implementation of communication in the vendor's driver. So we could simply drop the communication interfaces.
 
-## Communication Interfaces
+When communication interfaces are removed, the overview of warpdrive is in below.
 
-***int wd_send(struct wd_queue \*q, void \*req);***
+![overview](./wd_overview.png)
 
-It's used to send data from user apps to hardware. Address are mapped in this function.
+Then there're only addressing interfaces and algorithm interfaces. Vendor driver is between these two interfaces.
 
-***int wd_recv(struct wd_queue \*q, void \*\*resp);***
-
-It's used to receive data from hardware to user apps. Address are mapped in this function.
-
-***int wd_recv_sync(struct wd_queue \*q, void \*\*resp, __u16 ms);***
-
-It's used to receive data from hardware to user apps. Address are mapped in this function.
-
-Since warpdrive project is mainly focus on accelerator implementations, different algorithm implementations should be supported by warpdrive project. Communication interfaces could abstract the send/receive operations between accelerator hardware and software. Although the send/receive operation is the basic operation, different algorithm need different operations. These different operations could not be covered by send/receive operations. We could move the send/receive operation into algorithm implementation, and it could simplify warpdrive project. So we could remove the communication interfaces.
-
-
-## Compression Algorithm Interfaces
-
-### Compression
-
-```
-    struct wd_comp_ctx {
-        struct wd_queue *q;
-        void *in;
-        void *out;
-        int window_size;
-        int alg_type;      /* zlib or gzip */
-        int comp_level;    /* 0-9 */
-        int stream_mode;   /* stateless or stateful */
-        int new_stream;    /* old stream or new stream */
-        int flush_type;    /* NO_FLUSH, SYNC_FLUSH, FINISH, INVALID_FLUSH */
-        void *private;     /* vendor specific structure */
-    };
-```
-
-***int wd_comp_init(struct wd_comp_ctx \*ctx);***
-
-***int wd_comp(struct wd_comp_ctx \*ctx, const unsigned char \*src, unsigned int \*src_len, unsigned char \*dest, unsigned int \*dest_len, int flush);***
-
-***int wd_comp_end(struct wd_comp_ctx \*ctx);***
-
-
-### Decompression
-
-***int wd_decomp_init(struct wd_comp_ctx \*ctx);***
-
-***int wd_decomp(struct wd_comp_ctx \*ctx, const unsigned char \*src, unsigned int \*src_len, unsigned char \*dest, unsigned int \*dest_len, int flush_type);***
-
-***int wd_decomp_end(struct wd_comp_ctx \*ctx);***
-
-
-### Support zlib-ng
-
-It's discussed in another document "Thoughts_on_zlib_ng.md". The implementation should be in warpdrive. zlib-ng only calls the exported interfaces in warpdrive.
+*In this document, we'll try to evolve the implementation of warpdrive. And all the scenarios are also mentioned. "UACCE_MODE_NOUACCE" mode in kernel is ignored since warpdrive can't work without UACCE.*
 
 
 ## Addressing interfaces
 
-### Updating "struct _dev_info"
+Addressing interfaces are in the wd helper functions level. They're the interfaces that are based on UACCE in kernel space. UACCE supports three scenarios, SVA scenario, Sharing Domain scenario and NOIOMMU scenario.
+
+Some structures are evolving and all scenarios are mentioned in below.
+
+### Evolving "struct _dev_info" to "struct uacce_dev_info"
 
 ```
-struct _dev_info {
+struct uacce_dev_info {
   int node_id;
   int numa_dis;
   int iommu_type;
@@ -80,17 +37,22 @@ struct _dev_info {
 };
 ```
 
-Suggest to rename the "_dev_info" to "uacce_dev_info". And suggest to move "uacce_dev_info" from "wd.c" to "wd.h". Most fields in "uacce_dev_info" could be parsed from sysfs node. There's no reason to hide these kinds of information.  
+Suggest to rename the "_dev_info" to "uacce_dev_info". Since we know it's uacce device, it's unnecessary to use "_dev" as name. And suggest to move "uacce_dev_info" from "wd.c" to "wd.h". Most fields in "uacce_dev_info" could be parsed from sysfs node. There's no reason to hide these kinds of information.
 
 
-### Updating "struct wd_queue"
+### Evolving "struct wd_queue" to "struct wd_chan"
 
-#### Avoid copy fields from "struct _dev_info"
+#### Rename to "struct wd_channel"
 
-Some fields in "struct wd_queue" are just copied from "struct _dev_info". Since warpdrive just copy them without changing them, the copy operation is unnecessary at all. So we could simplify the "struct wd_queue" in below.  
+QM (queue management) is a hardware communication mechanism that is used in Hisilicon platform. But it's not common enough that every vendor adopts this communication mechanism. So suggest to use a much generic name, "wd_chan". *(chan means channel)*
+
+
+#### Avoid copy fields from "struct uacce_dev_info"
+
+Some fields in "struct wd_queue" are just copied from "struct _dev_info". Since warpdrive just copy them without changing them, the copy operation is unnecessary at all. Simplify the "struct wd_chan" in below.
 
 ```
-struct wd_queue {
+struct wd_chan {
   struct uacce_dev_info *dev_info;
   int fd;
   char dev_path[PATH_STR_SIZE];
@@ -99,6 +61,7 @@ struct wd_queue {
 };
 ```
 
+
 #### Rename ss_pa field
 
 And suggest to rename "ss_pa" to "ss_dma". "ss_pa" is used to fill DMA descriptor. In NOIOMMU scenario, "ss_pa" is physical address. But "ss_pa" is just IOVA in SVA scenario. It is easy to make user confusion. The name of "ss_dma" should be better.
@@ -106,36 +69,23 @@ And suggest to rename "ss_pa" to "ss_dma". "ss_pa" is used to fill DMA descripto
 
 #### Suggestion on "struct vendor_chan"
 
-Since "struct wd_queue" is allocated out of "wd_request_queue()", suggest vendor allocate "struct vendor_chan" directly. The head of "struct vendor_chan" is "struct wd_queue". Additional hardware informations are stored in higher address. User could use convert pointer type between "struct wd_queue" and "struct vendor_chan".
+"struct wd_chan" is expected to allocated by vendor's driver and used in wd helper functions. Suggest vendor driver allocates "struct vendor_chan" instead. The head of "struct vendor_chan" is "struct wd_queue". Additional hardware informations are stored in higher address. Vendor driver could convert the pointer type between "struct wd_chan" and "struct vendor_chan".
 
 
-#### Rename "struct wd_queue"
+### Obsolete "struct wd_drv_dio_if"
 
-Since QM is not common enough for each vendor, suggest to change the name of "wd_queue" to "wd_chan" for more generic.
+"struct wd_drv_dio_if" is focus on communication interface and basic operations. Since communication interface is abandoned and algorithm interface is widely used. This structure is a bit redundant. Some new structures based on algorithm are expected.
 
-
-### Updating "struct wd_drv_dio_if"
-
-#### Clean structure
-
-Since communication interface is abandoned, we don't need to keep "send()" and "recv()" in "struct wd_drv_dio_if" any more.
-
-
-#### Support different algorithms
-
-In original implementation, different vendor devices are registered with "struct wd_drv_dio_if". Now we're moving to support algorithm interfaces, not communication interfaces. But there're may several methods in one algorithm interfaces. If we fill all of the algorithm methods in a structure, it may be huge. It's better to split "struct wd_drv_dio_if" into different algorithm structures.
-
-Maybe vendor only supports a few hardware accelerators. Vendor should only register related algorithm interface.
 
 ### Obsolete Interfaces
 
 ***void *wd_drv_mmap_qfr(struct wd_queue \*q, enum uacce_qfrt qfrt, enum uacce_qfrt qfrt_next, size_t size);***
 
-It's used to map qfile region to user space. It's just fill "q->fd" and "q->qfrs_offset[qfrt]" into mmap(). It seems the wrap is unnecessary.  
+It's used to map qfile region to user space. It's just fill "q->fd" and "q->qfrs_offset[qfrt]" into mmap(). It seems the wrap is unnecessary.
 
 ***void wd_drv_unmap_qfr(struct wd_queue \*q, void \*addr, enum uacce_qfrt qfrt, enum uacce_qfrt qfrt_next, size_t size);***
 
-It's used to destroy the qfile region by unmap(). It seems that we can use munmap() directly.  
+It's used to destroy the qfile region by unmap(). It seems that we can use munmap() directly.
 
 
 ### SVA Scenario
@@ -174,14 +124,9 @@ When a process wants to communicate with hardware device, it needs to call *wd_r
 Multiple devices could share same memory region in one process. Then the same memory region needs to be shared between multiple devices. Since there's only one IOMMU domain and one process in this scenario, different devices could understand the same memory region. In order to manage the refcount, *wd_share_reserved_memory()* is necessary when Queue B needs to accesses the memory of Queue A.
 
 
-#### Questions on Share Domain Scenario
+#### Limitations on Share Domain Scenario
 
 IOMMU could bring lots of benefits. One of the benefit is resolving the memory fragement issue. IOMMU could map discrete memory pages into one continuous address, IPA. But it current design, memory is still allocated in kernel space by *alloc_pages()*. System may fail to allocate memory by *alloc_pages()* because of memory fragement.
-
-Maybe we can change to allocate memory in user space instead. Then pin the memory and make IOMMU do the mapping. If so, we need to discard *wd_reserve_mem()* in this scenario.
-
-
-#### Limitations on Share Domain Scenario
 
 All DMA transitions are limited in one IOMMU domain.
 
@@ -242,8 +187,82 @@ The SMM interfaces are in below.
 ***void smm_free(void \*pt_addr, void \*ptr);***
 
 
-## Suggestions
+### New APIs related to sharing
 
-*malloc()*, *wd_reserve_mem()* and *smm_alloc()* all returns virtual memory. In **NOIOMMU** scenario, process needs to fill physical address in DMA transaction, *wd_get_pa_from_va()* is important to get physical address. But *wd_get_va_from_pa()* is unnecessary. We could remove it to simplify the code.
+The address could be easily shared in SVA scenario. But we have to use *wd_share_reserved_memory()* to share address in both Share Domain scenario and NOIOMMU scenario. At the same time, we provide the algorithm interfaces to user applicaton because we hope user application not care hardware implementation in details. The two requirements conflicts. So a few new APIs are necessary.
 
-Add the algorithm interfaces into warpdrive.
+*int wd_is_sharing(struct wd_chan \*chan, void \*dma_addr)* indicates whether the dma_addr could be shared. Return 1 for SVA scenario. Return 0 for both Share Domain scenario and NOIOMMU scenario.
+
+*int wd_share_dma_addr(struct wd_chan \*dst_chan, struct wd_chan \*src_chan)* shares the dma_addr from src_chan to dst_chan.
+
+These two APIs is provided to user application by warpdrive.
+
+
+### New APIs related to allocate memory by 3rd party library
+
+Allocating memory in different three scenarios are discussed above. If memory is allocated by 3rd party library that could also be used by hardware, we also need to support it in warpdrive. These APIs are necessary in below.
+
+```
+    struct wd_3rd_memory {
+        void \*alloc_mem(void \*va, void \*pa);  // returns va
+        void free_mem(void \*va);
+    };
+```
+*wd_register_3rd_memory(struct wd_3rd_memory \*mem)* registers the memory allocation and free in warpdrive.
+
+*wd_unregister_3rd_memory(struct wd_3rd_memory \*mem)* unregisters the memory allocation and free in warpdrive.
+
+When 3rd party memory is used, we need to mark it in "struct wd_chan".
+
+
+## Compression Algorithm Interfaces
+
+The hardware accelerator is shared in the system. When compression is ongoing, warpdrive needs to track the current task. So a context is necessary to record key informations.
+
+```
+    struct wd_comp_ctx {
+        struct wd_chan *ch;
+        void *in;
+        void *out;
+        int window_size;
+        int alg_type;      /* zlib or gzip */
+        int comp_level;    /* 0-9 */
+        int stream_mode;   /* stateless or stateful */
+        int new_stream;    /* old stream or new stream */
+        int flush_type;    /* NO_FLUSH, SYNC_FLUSH, FINISH, INVALID_FLUSH */
+        void *private;     /* vendor specific structure */
+    };
+```
+
+The context should be allocated in user application. From the view of compression, there're two parts, compression and decompression. From the view of operation, there're two operations, synchronous and asychronous operation. These APIs are the interfaces between user application and vendor driver.
+
+*wd_alg_deflate(struct wd_comp_ctx \*ctx, ...)* executes the synchronous compression. The function is blocked until compression done.
+
+*wd_alg_inflate(struct wd_comp_ctx \*ctx, ...)* executes the synchronous decompression. The function is blocked until decompression done.
+
+*wd_alg_async_deflate(struct wd_comp_ctx \*ctx, callback_t \*callback, ...)* executes the asynchronous compression. The function returns immediately while compression is still on-going. When the compression is done, a predefined callback in user application is executed.
+
+*wd_alg_async_inflate(struct wd_comp_ctx \*ctx, callback_t \*callback, ...)* executes the asynchronous decompression. The function returns immediately while decompression is still on-going. When the decompression is done, a predefined callback in user application is executed.
+
+These APIs are the interfaces between vendor driver and warpdrive help functions.
+
+```
+    struct wd_alg_comp {
+        int (\*init)(...);
+        void (\*exit)(...);
+        int (\*deflate)(...);
+        int (\*inflate)(...);
+        int (\*callback)(...);
+        ...
+    };
+```
+
+*wd_alg_comp_register(struct wd_alg_comp \*vendor_comp)* registers the vendor compression and decompression implementation in warpdrive.
+
+*wd_alg_comp_unregister(struct wd_alg_comp \*vendor_comp)* unregisters the vendor compression and decompression implementation in warpdrive.
+
+
+### Support zlib-ng
+
+It's discussed in another document "Thoughts_on_zlib_ng.md". The implementation should be in warpdrive. zlib-ng only calls the exported interfaces in warpdrive.
+
