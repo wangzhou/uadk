@@ -377,6 +377,7 @@ void wd_flush(struct wd_queue *q)
 
 void *wd_reserve_memory(struct wd_queue *q, size_t size)
 {
+	fprintf(stderr, "gzf wd_reserve_mem q=0x%x\n", q);
 	return drv_reserve_mem(q, size);
 }
 

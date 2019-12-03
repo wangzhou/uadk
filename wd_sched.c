@@ -115,7 +115,7 @@ void wd_sched_fini(struct wd_scheduler *sched)
 		if (sched->ss_region)
 			free(sched->ss_region);
 	} else {
-		ion_close_buffer_fd(&sched->qs[0]->info);
+		drv_unreserve_mem(&sched->qs[0]);
 	}
 	for (i = sched->q_num - 1; i >= 0; i--)
 		wd_release_queue(&sched->qs[i]);

@@ -65,6 +65,7 @@ int ion_export_buffer_fd(struct ion_buffer_info *ion_info)
 
 	/* Allocate memory for this ION client as per heap_type */
 	ret = ioctl(ionfd, ION_IOC_ALLOC, &alloc_data);
+	fprintf(stderr, "gzf ret=%d\n", ret);
 	if (ret < 0) {
 		fprintf(stderr, "<%s>: Failed: ION_IOC_ALLOC: %s\n",
 			__func__, strerror(errno));
