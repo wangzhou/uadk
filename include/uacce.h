@@ -10,6 +10,16 @@
 #define UACCE_CMD_GET_SS_DMA    _IOR('W', 100, unsigned long)
 #define UACCE_CMD_SHARE_SVAS    _IO('W', 101)
 
+#define UACCE_CMD_DMA_BUF_ATTACH        _IOWR('W', 2, struct uacce_dma_buf)
+#define UACCE_CMD_DMA_BUF_DETACH        _IOWR('W', 3, struct uacce_dma_buf)
+
+struct uacce_dma_buf {
+	__s32 fd;       /* fd */
+	__u32 flags;    /* flags to map with */
+	__u64 size;     /* size */
+	__u64 ptr;
+};
+
 /**
  * UACCE Device flags:
  *

@@ -94,21 +94,42 @@ void drv_flush(struct wd_queue *q)
 
 void *drv_reserve_mem(struct wd_queue *q, size_t size)
 {
+	struct uacce_dma_buf buf;
+
+#if 0
 	q->ss_va = wd_drv_mmap_qfr(q, UACCE_QFRT_SS, size);
 
 	if (q->ss_va == MAP_FAILED) {
 		WD_ERR("wd drv mmap fail!\n");
 		return NULL;
 	}
+#endif
+	q->info.heap_type = ION_HEAP_TYPE_SYSTEM_CONTIG;
+	q->info.heap_size = size;
 
-	if (q->dev_flags & UACCE_DEV_NOIOMMU) {
-		errno = (long)ioctl(q->fd, UACCE_CMD_GET_SS_DMA, &q->ss_pa);
+	ret = ion_export_buffer_fd(&q->info);
+	if (ret < 0) {
+		fprintf(stderr, "FAILED: ion_get_buffer_fd\n");
+		goto err_export;
+	}
+	q->ss_va = q->info->buffer;
+
+	//if (q->dev_flags & UACCE_DEV_NOIOMMU) {
+	if (1) {
+		buf.fd = q->info.buffd;
+		buf.size = q->info.buflen;
+		errno = (long)ioctl(q->fd, UACCE_CMD_DMA_BUF_ATTACH, &buf);
 		if (errno) {
 			WD_ERR("get PA fail!\n");
 			return NULL;
 		}
+		q->ss_pa = buf.prt;
+		fprintf(stderr, "gzf drv_reserve_mem q->ss_va=0x%x, q->ss_pa=0x%x\n", q->ss_va, q->ss_pa);
 	} else
 		q->ss_pa = q->ss_va;
 
 	return q->ss_va;
+
+err_export:
+	ion_close_buffer_fd(&q->info);
 }

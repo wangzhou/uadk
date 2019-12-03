@@ -197,5 +197,5 @@ int ion_alloc(size_t size)
 
 err_export:
 	ion_close_buffer_fd(&info);
-
+	return ret;
 }

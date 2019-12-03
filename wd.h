@@ -13,6 +13,7 @@
 #include <limits.h>
 #include "include/uacce.h"
 #include "config.h"
+#include "ionutils.h"
 
 #define SYS_VAL_SIZE		16
 #define PATH_STR_SIZE		256
@@ -122,6 +123,7 @@ struct wd_queue {
 	void *ss_pa;
 	int dev_flags;
 	unsigned long qfrs_offset[UACCE_QFRT_MAX];
+	struct ion_buffer_info info;
 };
 
 static inline void *wd_get_pa_from_va(struct wd_queue *q, void *va)
