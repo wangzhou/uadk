@@ -1,21 +1,26 @@
 
-# Thoughts on Warpdrive
+# Warpdrive Architecture Design
 
 ## Overview
 
-Warpdrive is designed for hardware accelerator in user-space. From the view of architecture, three kinds of interfaces were defined. They were addressing interfaces, communication interfaces and algorithm interfaces.
+Warpdrive is an accelerator software architecture to help vendors to use their hardware accelerator in user space easily and efficiently. It includes a kernel driver named UACCE and a user space library named libwd.
 
-Communication interfaces cover the communication between vendor's hardware and user applicantion. And it abstracts the communication behavior as *wd_send()* and *wd_recv()*. Once message is sent to hardware, it's expected to receive a response. From the view of communication, it's the right behavior. From the view of accelerator, it's not exactly true. Maybe user sends multiple messages to hardware and just gets one response from hardware.
-
-We can just move the implementation of communication in the vendor's driver. So we could simply drop the communication interfaces.
-
-When communication interfaces are removed, the overview of warpdrive is in below.
+libwd provides a wrapper of basic UACCE user space interfaces, they will be a set of help functions. And libwd offers a set of APIs based on specific algorithms to users, who could use this set of APIs to do specific task without accessing low level implementations. libwd offers a register interface to let hardware vendors to register their own user space driver, which could use above help functions to do UACCE related work.
 
 ![overview](./wd_overview.png)
 
-Then there're only addressing interfaces and algorithm interfaces. Vendor driver is between these two interfaces.
+The key point of Warpdrive is that it is based on Linux SVA technology, which make device sharing the same virtual address space with CPU in user space.
 
-*In this document, we'll try to evolve the implementation of warpdrive. And all the scenarios are also mentioned. "UACCE_MODE_NOUACCE" mode in kernel is ignored since warpdrive can't work without UACCE.*
+This document focuses on the design of libwd.
+
+
+## UACCE user space API
+
+As the kernel driver of Warpdrive, UACCE offers a set of API between kernel and user space.
+
+Since UACCE driver is still under upstreaming process, latest APIs of UACCE can be found in <https://lkml.org/lkml/2019/11/22/1728>. UACCE is introduced in "uacce.rst" and "sysfs-driver-uacce" of this patchset.
+
+The basic idea of UACCE driver is that a char device will be created for an accelerator device, which attributes will be showed in sysfs, like "/sys/class/uacce/[device]/[attr_files]". After opening this char device once, user will get a channel to access the resource of this accelerator device. User can configure above channel by ioctl of this opened fd, and mmap hardware resource, like MMIO or channel to user space.
 
 
 ## Addressing interfaces
