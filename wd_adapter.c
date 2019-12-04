@@ -116,8 +116,9 @@ void *drv_reserve_mem(struct wd_queue *q, size_t size)
 #endif
 	fprintf(stderr, "gzf drv_reserve_mem q=0x%x\n", q);
 
-	q->info.heap_type = ION_HEAP_TYPE_SYSTEM_CONTIG;
+//	q->info.heap_type = ION_HEAP_TYPE_SYSTEM_CONTIG;
 //	q->info.heap_type = ION_HEAP_TYPE_SYSTEM;
+	q->info.heap_type = ION_HEAP_TYPE_DMA;
 	q->info.heap_size = size;
 
 	ret = ion_export_buffer_fd(&q->info);
