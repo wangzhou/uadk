@@ -29,68 +29,53 @@ Addressing interfaces are in the wd helper functions level. They're the interfac
 
 Some structures are evolving and all scenarios are mentioned in below.
 
-### Evolving "struct _dev_info" to "struct uacce_dev_info"
+### struct uacce_dev_info
 
 ```
-struct uacce_dev_info {
-  int node_id;
-  int numa_dis;
-  int iommu_type;
-  int flags;
-  ...
-  unsigned long qfrs_offset[UACCE_QFRT_MAX];
-};
+    struct uacce_dev_info {
+        int node_id;
+        int numa_dis;
+        int iommu_type;
+        int flags;
+        ...
+        unsigned long qfrs_offset[UACCE_QFRT_MAX];
+    };
 ```
 
-Suggest to rename the "_dev_info" to "uacce_dev_info". Since we know it's uacce device, it's unnecessary to use "_dev" as name. And suggest to move "uacce_dev_info" from "wd.c" to "wd.h". Most fields in "uacce_dev_info" could be parsed from sysfs node. There's no reason to hide these kinds of information.
+Most fields of "uacce_dev_info" are parsed from sysfs node.
 
 
-### Evolving "struct wd_queue" to "struct wd_chan"
-
-#### Rename to "struct wd_channel"
+### struct wd_chan
 
 QM (queue management) is a hardware communication mechanism that is used in Hisilicon platform. But it's not common enough that every vendor adopts this communication mechanism. So suggest to use a much generic name, "wd_chan". *(chan means channel)*
 
 
-#### Avoid copy fields from "struct uacce_dev_info"
-
-Some fields in "struct wd_queue" are just copied from "struct _dev_info". Since warpdrive just copy them without changing them, the copy operation is unnecessary at all. Simplify the "struct wd_chan" in below.
-
 ```
-struct wd_chan {
-  struct uacce_dev_info *dev_info;
-  int fd;
-  char dev_path[PATH_STR_SIZE];
-  void *ss_va;
-  void *ss_pa;
-};
+    struct wd_chan {
+        int fd;
+        char dev_path[PATH_STR_SIZE];
+        void *ss_va;
+        void *ss_dma;
+        void *dev_info;   // point to struct uacce_dev_info
+    };
 ```
 
+In NOIOMMU scenario, "ss_dma" is physical address. But "ss_dma" is just IOVA in SVA scenario.
 
-#### Rename ss_pa field
-
-And suggest to rename "ss_pa" to "ss_dma". "ss_pa" is used to fill DMA descriptor. In NOIOMMU scenario, "ss_pa" is physical address. But "ss_pa" is just IOVA in SVA scenario. It is easy to make user confusion. The name of "ss_dma" should be better.
-
-
-#### Suggestion on "struct vendor_chan"
-
-"struct wd_chan" is expected to allocated by vendor's driver and used in wd helper functions. Suggest vendor driver allocates "struct vendor_chan" instead. The head of "struct vendor_chan" is "struct wd_queue". Additional hardware informations are stored in higher address. Vendor driver could convert the pointer type between "struct wd_chan" and "struct vendor_chan".
+"struct wd_chan" is expected to be allocated by vendor driver and used in wd helper functions. Suggest vendor driver allocates "struct vendor_chan" instead. The head of "struct vendor_chan" is "struct wd_queue". Additional hardware informations are stored in higher address. Vendor driver could convert the pointer type between "struct wd_chan" and "struct vendor_chan".
 
 
-### Obsolete "struct wd_drv_dio_if"
-
-"struct wd_drv_dio_if" is focus on communication interface and basic operations. Since communication interface is abandoned and algorithm interface is widely used. This structure is a bit redundant. Some new structures based on algorithm are expected.
-
-
-### Obsolete Interfaces
+## mmap
 
 ***void *wd_drv_mmap_qfr(struct wd_queue \*q, enum uacce_qfrt qfrt, enum uacce_qfrt qfrt_next, size_t size);***
 
-It's used to map qfile region to user space. It's just fill "q->fd" and "q->qfrs_offset[qfrt]" into mmap(). It seems the wrap is unnecessary.
+It's used to map qfile region to user space. It's just fill "q->fd" and "q->qfrs_offset[qfrt]" into mmap().
 
 ***void wd_drv_unmap_qfr(struct wd_queue \*q, void \*addr, enum uacce_qfrt qfrt, enum uacce_qfrt qfrt_next, size_t size);***
 
-It's used to destroy the qfile region by unmap(). It seems that we can use munmap() directly.
+It's used to destroy the qfile region by unmap().
+
+Maybe we can use mmap() and unmap() directly.
 
 
 ### SVA Scenario
@@ -192,32 +177,30 @@ The SMM interfaces are in below.
 ***void smm_free(void \*pt_addr, void \*ptr);***
 
 
-### New APIs related to sharing
+### API on sharing address
 
 The address could be easily shared in SVA scenario. But we have to use *wd_share_reserved_memory()* to share address in both Share Domain scenario and NOIOMMU scenario. At the same time, we provide the algorithm interfaces to user applicaton because we hope user application not care hardware implementation in details. The two requirements conflicts. So a few new APIs are necessary.
 
-*int wd_is_sharing(struct wd_chan \*chan, void \*dma_addr)* indicates whether the dma_addr could be shared. Return 1 for SVA scenario. Return 0 for both Share Domain scenario and NOIOMMU scenario.
+*int wd_is_sharing()* indicates whether dma address could be shared. Return 1 for SVA scenario. Return 0 for both Share Domain scenario and NOIOMMU scenario.
 
-*int wd_share_dma_addr(struct wd_chan \*dst_chan, struct wd_chan \*src_chan)* shares the dma_addr from src_chan to dst_chan.
-
-These two APIs is provided to user application by warpdrive.
+Then user don't need to care about any scenario. It only needs to check whether the address is sharable.
 
 
-### New APIs related to allocate memory by 3rd party library
+### APIs related to allocate memory by 3rd party library
 
 Allocating memory in different three scenarios are discussed above. If memory is allocated by 3rd party library that could also be used by hardware, we also need to support it in warpdrive. These APIs are necessary in below.
 
 ```
     struct wd_3rd_memory {
-        void \*alloc_mem(void \*va, void \*pa);  // returns va
-        void free_mem(void \*va);
+        void *alloc_mem(void *va, void *pa);  // returns va
+        void free_mem(void *va);
     };
 ```
 *wd_register_3rd_memory(struct wd_3rd_memory \*mem)* registers the memory allocation and free in warpdrive.
 
 *wd_unregister_3rd_memory(struct wd_3rd_memory \*mem)* unregisters the memory allocation and free in warpdrive.
 
-When 3rd party memory is used, we need to mark it in "struct wd_chan".
+When 3rd party memory is used, we need to mark it in "struct wd_chan". And this structure should be binded into "struct wd_chan".
 
 
 ## Compression Algorithm Interfaces
@@ -253,11 +236,11 @@ These APIs are the interfaces between vendor driver and warpdrive help functions
 
 ```
     struct wd_alg_comp {
-        int (\*init)(...);
-        void (\*exit)(...);
-        int (\*deflate)(...);
-        int (\*inflate)(...);
-        int (\*callback)(...);
+        int (*init)(...);
+        void (*exit)(...);
+        int (*deflate)(...);
+        int (*inflate)(...);
+        int (*callback)(...);
         ...
     };
 ```
