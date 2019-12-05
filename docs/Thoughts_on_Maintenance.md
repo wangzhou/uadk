@@ -8,6 +8,11 @@ Make sure you have registered in the mailing list "linux-accelerators@lists.ozla
 Clone warpdrive from [Github](https://github.com/linaro/warpdrive).
 
 
+## Lincense
+
+libwd is adopting Apache License 2.0.
+
+
 ## Coding Style
 
 ### Include statement ording
@@ -67,6 +72,13 @@ Ensure that each commit in the series has at least one **Signed-off-by:** line, 
 Submit your changes for review at the mailing list "linux-accelerators@lists.ozlabs.org" targeting the **master** branch.
 
 When the changes are accepted, the maintainers will integrate them.
+
+
+## Working Branch
+
+While UACCE patchset isn't merged, always rebase libwd on different branch for different UACCE patchset.
+
+While UACCE patchset is merged, use **master** branch instead.
 
 
 ## Main maintainers
