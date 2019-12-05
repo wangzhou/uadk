@@ -57,6 +57,8 @@ QM (queue management) is a hardware communication mechanism that is used in Hisi
         void *ss_va;
         void *ss_dma;
         void *dev_info;   // point to struct uacce_dev_info
+        unsigned int flags; // WD_CHANNEL_FLAG_3RD_MEM_ALLOC
+        struct wd_3rd_memory mem_3rd;
     };
 ```
 
@@ -192,15 +194,19 @@ Allocating memory in different three scenarios are discussed above. If memory is
 
 ```
     struct wd_3rd_memory {
-        void *alloc_mem(void *va, void *pa);  // returns va
+        void *alloc_mem(void *va, void *dma_addr, size_t size);  // returns va
         void free_mem(void *va);
     };
 ```
-*wd_register_3rd_memory(struct wd_3rd_memory \*mem)* registers the memory allocation and free in warpdrive.
+***wd_register_3rd_memory(struct wd_chan \*chan, struct wd_3rd_memory \*mem)*** registers the memory allocation and free in warpdrive.
 
-*wd_unregister_3rd_memory(struct wd_3rd_memory \*mem)* unregisters the memory allocation and free in warpdrive.
+***wd_unregister_3rd_memory(struct wd_chan \*chan)*** unregisters the memory allocation and free in warpdrive.
 
-When 3rd party memory is used, we need to mark it in "struct wd_chan". And this structure should be binded into "struct wd_chan".
+When 3rd party memory is used, we need to mark it in flags field of "struct wd_chan".
+
+These two APIs should be used by user application. And the "struct wd_3rd_memory" should be binded into "struct wd_chan", since "ss_va" and "ss_dma" are also stored in "struct wd_chan". And libwd should invoke 3rd party memory allocation function when map **UACCE_QFRT_SS** region to user application. UACCE should avoid to allocate memory if it finds channel could use 3rd party memory allocation.
+
+Note: *wd_register_3rd_memory()* should be used between *wd_request_channel()* and *wd_drv_mmap_qfr()*. *wd_unregister_3rd_memory()* should be used between *wd_drv_unmap_qfr()* and *wd_unregister_3rd_memory()*.
 
 
 ## Compression Algorithm Interfaces
@@ -210,11 +216,7 @@ The hardware accelerator is shared in the system. When compression is ongoing, w
 ```
     struct wd_comp_ctx {
         struct wd_chan *ch;
-        void *in;
-        void *out;
-        int window_size;
         int alg_type;      /* zlib or gzip */
-        int comp_level;    /* 0-9 */
         int stream_mode;   /* stateless or stateful */
         int new_stream;    /* old stream or new stream */
         int flush_type;    /* NO_FLUSH, SYNC_FLUSH, FINISH, INVALID_FLUSH */
@@ -224,13 +226,15 @@ The hardware accelerator is shared in the system. When compression is ongoing, w
 
 The context should be allocated in user application. From the view of compression, there're two parts, compression and decompression. From the view of operation, there're two operations, synchronous and asychronous operation. These APIs are the interfaces between user application and vendor driver.
 
-*wd_alg_deflate(struct wd_comp_ctx \*ctx, ...)* executes the synchronous compression. The function is blocked until compression done.
+***wd_alg_deflate(struct wd_comp_ctx \*ctx, void \*src, unsigned int \*src_len, void \*dst, unsigned int \*dst_len)*** executes the synchronous compression. The function is blocked until compression done.
 
-*wd_alg_inflate(struct wd_comp_ctx \*ctx, ...)* executes the synchronous decompression. The function is blocked until decompression done.
+***wd_alg_inflate(struct wd_comp_ctx \*ctx, void \*src, unsigned int \*src_len, void \*dst, unsigned int \*dst_len)*** executes the synchronous decompression. The function is blocked until decompression done.
 
-*wd_alg_async_deflate(struct wd_comp_ctx \*ctx, callback_t \*callback, ...)* executes the asynchronous compression. The function returns immediately while compression is still on-going. When the compression is done, a predefined callback in user application is executed.
+***wd_alg_async_deflate(struct wd_comp_ctx \*ctx, callback_t \*callback, void \*src, unsigned int \*src_len, void \*dst, unsigned int \*dst_len)*** executes the asynchronous compression. The function returns immediately while compression is still on-going. When the compression is done, a predefined callback in user application is executed.
 
-*wd_alg_async_inflate(struct wd_comp_ctx \*ctx, callback_t \*callback, ...)* executes the asynchronous decompression. The function returns immediately while decompression is still on-going. When the decompression is done, a predefined callback in user application is executed.
+***wd_alg_async_inflate(struct wd_comp_ctx \*ctx, callback_t \*callback, void \*src, unsigned int \*src_len, void \*dst, unsigned int \*dst_len)*** executes the asynchronous decompression. The function returns immediately while decompression is still on-going. When the decompression is done, a predefined callback in user application is executed.
+
+User application needs to configure *struct wd_comp_ctx* directly before starting deflation/inflation.
 
 These APIs are the interfaces between vendor driver and warpdrive help functions.
 
@@ -245,9 +249,9 @@ These APIs are the interfaces between vendor driver and warpdrive help functions
     };
 ```
 
-*wd_alg_comp_register(struct wd_alg_comp \*vendor_comp)* registers the vendor compression and decompression implementation in warpdrive.
+***wd_alg_comp_register(struct wd_alg_comp \*vendor_comp)*** registers the vendor compression and decompression implementation in warpdrive.
 
-*wd_alg_comp_unregister(struct wd_alg_comp \*vendor_comp)* unregisters the vendor compression and decompression implementation in warpdrive.
+***wd_alg_comp_unregister(struct wd_alg_comp \*vendor_comp)*** unregisters the vendor compression and decompression implementation in warpdrive.
 
 
 ### Support zlib-ng
