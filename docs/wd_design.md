@@ -69,15 +69,7 @@ In NOIOMMU scenario, "ss_dma" is physical address. But "ss_dma" is just IOVA in 
 
 ## mmap
 
-***void *wd_drv_mmap_qfr(struct wd_queue \*q, enum uacce_qfrt qfrt, enum uacce_qfrt qfrt_next, size_t size);***
-
-It's used to map qfile region to user space. It's just fill "q->fd" and "q->qfrs_offset[qfrt]" into mmap().
-
-***void wd_drv_unmap_qfr(struct wd_queue \*q, void \*addr, enum uacce_qfrt qfrt, enum uacce_qfrt qfrt_next, size_t size);***
-
-It's used to destroy the qfile region by unmap().
-
-Maybe we can use mmap() and unmap() directly.
+We can use mmap() and unmap() directly.
 
 
 ### SVA Scenario
@@ -95,41 +87,13 @@ When a process wants to communicate with hardware device, it needs to get a new 
 When a process wants to access the same memory by multiple queues, it could rely on the POSIX shared memory API.
 
 
-### Share Domain Scenario
+### NOSVA Scenario
 
-#### Share Domain Interfaces
+#### NOSVA Interfaces
 
-In the Share Domain scenario, IOMMU is enabled but PASID isn't supported by device. So all DMA transactions are limited in the same IOMMU domain. The memory for DMA transaction is allocated in kernel space. And IOVA is used in DMA transaction.
+In the NOSVA scenario, it supports both IOMMU and NOIOMMU mode. So physical address is used in DMA transaction. Since scatter/gather mode isn't enabled, DMA needs continuous memory. Now *alloc_pages()* is used to allocate continuous address. When user process needs physical memory, it has to allocate memory from the reserved memory region. When user wants to integrate warpdrive into some libraries, user has to do an extra memory copy to make DMA working if memory isn't allocated from the reserved memory region.
 
-The addressing interfaces in Share Domain scenario are in below.
-
-***int wd_request_channel(struct wd_chan \*ch);***
-
-***void wd_release_channel(struct wd_chan \*ch);***
-
-***void \*wd_reserve_mem(struct wd_chan \*ch, size_t size);***
-
-***int wd_share_reserved_memory(struct wd_chan \*ch, struct wd_chan \*target_ch);***
-
-When a process wants to communicate with hardware device, it needs to call *wd_request_channel()* and *wd_reserve_mem()* in turn to get a chunk of memory. If a process wants to use multiple small memory blocks, it just need to get multiple memory by SMM.
-
-Multiple devices could share same memory region in one process. Then the same memory region needs to be shared between multiple devices. Since there's only one IOMMU domain and one process in this scenario, different devices could understand the same memory region. In order to manage the refcount, *wd_share_reserved_memory()* is necessary when Queue B needs to accesses the memory of Queue A.
-
-
-#### Limitations on Share Domain Scenario
-
-IOMMU could bring lots of benefits. One of the benefit is resolving the memory fragement issue. IOMMU could map discrete memory pages into one continuous address, IPA. But it current design, memory is still allocated in kernel space by *alloc_pages()*. System may fail to allocate memory by *alloc_pages()* because of memory fragement.
-
-All DMA transitions are limited in one IOMMU domain.
-
-
-### NOIOMMU Scenario
-
-#### NOIOMMU Interfaces
-
-In the NOIOMMU scenario, physical address is used in DMA transaction. Since scatter/gather mode isn't enabled, DMA needs continuous memory. Now *alloc_pages()* is used to allocate continuous address. When user process needs physical memory, it has to allocate memory from the reserved memory region. When user wants to integrate warpdrive into some libraries, user has to do an extra memory copy to make DMA working if memory isn't allocated from the reserved memory region.
-
-The addressing interfaces in NOIOMMU scenario are in below.
+The addressing interfaces in NOSVA scenario are in below.
 
 ***int wd_request_channel(struct wd_chan \*ch);***
 
@@ -139,9 +103,7 @@ The addressing interfaces in NOIOMMU scenario are in below.
 
 ***int wd_share_reserved_memory(struct wd_chan \*ch, struct wd_chan \*target_ch);***
 
-***int wd_get_pa_from_va(struct wd_chan \*ch, void \*va);***
-
-***int wd_get_va_from_pa(struct wd_chan \*ch, void \*pa);***
+***int wd_get_dma_from_va(struct wd_chan \*ch, void \*va);***
 
 When a process wants to communicate the hardware device, it calls *wd_request_channel()* and *wd_reserve_mem()* in turn to get a chunk of memory.
 
@@ -152,12 +114,7 @@ When a process prepares the DMA transaction, it needs to convert VA into PA by *
 Multiple devices could share same memory region in one process. Then the same memory region needs to be shared between multiple devices. In order to manage the refcount, *wd_share_reserved_memory()* is necessary when Queue B needs to accesses the memory of Queue A.
 
 
-#### Redundant Interfaces
-
-Both *wd_reserve_mem()* and *smm_alloc()* all returns virtual memory. In NOIOMMU scenario, process needs to fill physical address in DMA transaction, *wd_get_pa_from_va()* is important to get physical address. But *wd_get_va_from_pa()* is unnecessary. We could remove it to simplify the code.
-
-
-#### Limitations on NOIOMMU Scenario
+#### Limitations on NOSVA Scenario
 
 Physical address is used in DMA transactions. It's not good to expose physical address to user space, since it'll cause security issues.
 
@@ -181,9 +138,9 @@ The SMM interfaces are in below.
 
 ### API on sharing address
 
-The address could be easily shared in SVA scenario. But we have to use *wd_share_reserved_memory()* to share address in both Share Domain scenario and NOIOMMU scenario. At the same time, we provide the algorithm interfaces to user applicaton because we hope user application not care hardware implementation in details. The two requirements conflicts. So a few new APIs are necessary.
+The address could be easily shared in SVA scenario. But we have to use *wd_share_reserved_memory()* to share address in NOSVA scenario. At the same time, we provide the algorithm interfaces to user applicaton because we hope user application not care hardware implementation in details. The two requirements conflicts. So a few new APIs are necessary.
 
-*int wd_is_sharing()* indicates whether dma address could be shared. Return 1 for SVA scenario. Return 0 for both Share Domain scenario and NOIOMMU scenario.
+*int wd_is_sharing()* indicates whether dma address could be shared. Return 1 for SVA scenario. Return 0 for NOSVA scenario.
 
 Then user don't need to care about any scenario. It only needs to check whether the address is sharable.
 
@@ -206,7 +163,7 @@ When 3rd party memory is used, we need to mark it in flags field of "struct wd_c
 
 These two APIs should be used by user application. And the "struct wd_3rd_memory" should be binded into "struct wd_chan", since "ss_va" and "ss_dma" are also stored in "struct wd_chan". And libwd should invoke 3rd party memory allocation function when map **UACCE_QFRT_SS** region to user application. UACCE should avoid to allocate memory if it finds channel could use 3rd party memory allocation.
 
-Note: *wd_register_3rd_memory()* should be used between *wd_request_channel()* and *wd_drv_mmap_qfr()*. *wd_unregister_3rd_memory()* should be used between *wd_drv_unmap_qfr()* and *wd_unregister_3rd_memory()*.
+Note: *wd_register_3rd_memory()* should be used between *wd_request_channel()* and *mmap()*. *wd_unregister_3rd_memory()* should be used between *munmap()* and *wd_unregister_3rd_memory()*.
 
 
 ## Compression Algorithm Interfaces
