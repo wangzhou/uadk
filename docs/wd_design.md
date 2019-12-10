@@ -1,6 +1,8 @@
 
 # Warpdrive Architecture Design
 
+version 0.90
+
 ## Overview
 
 Warpdrive is an accelerator software architecture to help vendors to use their 
@@ -17,7 +19,8 @@ help functions to do UACCE related work.
 ![overview](./wd_overview.png)
 
 The key point of Warpdrive is that it is based on Linux SVA technology, which 
-makes device sharing the same virtual address space with CPU in user space.
+makes device sharing the same virtual address space with CPU in user space. 
+This technology is based on IOMMU.
 
 This document focuses on the design of libwd.
 
@@ -39,11 +42,118 @@ User can configure above channel by ioctl of this opened fd, and mmap hardware
 resource, like MMIO or channel to user space.
 
 
-## Addressing interfaces
+## Warpdrive Algorithm Interface
 
-Addressing interfaces are in the wd helper functions level. They're the 
-interfaces that are based on UACCE in kernel space. UACCE supports two 
-scenarios, SVA scenario and NOSVA scenario.
+Warpdrive is a framework that supports multiple algorithm interfaces. We'll 
+discuss compression algorithm interface in below. And crypto algorithm 
+interface will be added later.
+
+
+### Compression Algorithm Interface
+
+Warpdrive compression algorithm interface is between user application and 
+vendor driver.
+
+
+#### Context
+
+The hardware accelerator is shared in the system. When compression is ongoing, 
+warpdrive needs to track the current task. So a context is necessary to record 
+key informations. User application needs to request a context before 
+compression or decompression.
+
+```
+    struct wd_alg_comp {
+        char *name;
+        int (*init)(...);
+        void (*exit)(...);
+        int (*deflate)(...);
+        int (*inflate)(...);
+    };
+
+    struct wd_comp_ctx {
+        int                 alg_type;    /* zlib or gzip */
+        
+        /* 3rd party memory allocation */
+        void                *(*alloc_mem)(size_t size);
+        void                (*free_mem)(void *address);
+        void                *(*va_to_dma)(void *address);
+        
+        struct wd_alg_comp  *hw;
+        void                *priv;       /* vendor specific structure */
+    };
+
+    struct wd_comp_arg {
+        void         *src;
+        size_t       src_len;
+        void         *dst;
+        size_t       dst_len;
+        int          flush_type;  /* NO_FLUSH, SYNC_FLUSH, FINISH, INVALID */
+    };
+```
+
+***struct wd_comp_ctx \*wd_alg_comp_alloc_ctx(void)*** requests a context.
+
+***void wd_alg_comp_free_ctx(struct wd_comp_ctx \*ctx)*** releases a context.
+
+
+#### Compression & Decompression
+
+Warpdrive compression algorithm provides the hook interface of hardware 
+implementation. It's "hw" field in "struct wd_comp_ctx".
+
+"struct wd_comp_arg" stores the information about source and destination 
+buffers. This structure is the input parameter of compression and decompression.
+
+If user application needs the synchronous compression or decompression, 
+functions are used in below.
+
+***wd_alg_compress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg)*** 
+***wd_alg_decompress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg)*** 
+
+When the above two functions are invoked, user application is blocked until
+the hardware operation is done.
+
+If user application wants to handle more tasks in parallel, asynchronous 
+operations are used in below.
+
+***wd_alg_async_compress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg, 
+callback_t \*callback)***
+***wd_alg_async_decompress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg, 
+callback_t \*callback)***
+
+When the above two functions are invoked, they return immediately. User 
+application could execute other tasks without delay. The *callback()* function 
+is defined in user application. When hardware compression or decompression
+is finished, it calls the callback function to inform user application.
+
+
+#### Register Compression Algorithm
+
+When user application executes compression or decompression, the hardware 
+implementation that defined in "hw" field of the context is invoked. This
+"hw" field is registered by vendor driver.
+
+Warpdrive compression algorithm layer maintains a list of "struct wd_alg_comp". 
+When the request of compression or decompression arrives, it compares the 
+device name with vendor driver. If they match, related hardware implementation 
+is linked to "hw" field of "struct wd_comp_ctx". By this way, vendor driver 
+binds to compression algorithm layer with context.
+
+
+#### 3rd party memory allocation
+
+In addition, we hope to support the case that 3rd party application allocates 
+memory and shares the address to Warpdrive. It's necessary to provide the hook 
+in the context. If user application doesn't want to use 3rd party application, 
+vendor driver could fill the function pointer to Warpdrive helper or malloc(). 
+By now, 3rd party memory allocation isn't supported by UACCE yet.
+
+
+## Warpdrive helper interfaces
+
+Warpdrive helper interfaces that are based on UACCE in kernel space. UACCE 
+supports two scenarios, SVA scenario and NOSVA scenario.
 
 Some structures are evolving and all scenarios are mentioned in below.
 
@@ -60,7 +170,8 @@ Some structures are evolving and all scenarios are mentioned in below.
     };
 ```
 
-Most fields of "uacce_dev_info" are parsed from sysfs node.
+Most fields of "uacce_dev_info" are parsed from sysfs node. This structure 
+is used in Warpdrive helper layer. And it won't be exported to user application.
 
 
 ### struct wd_chan
@@ -83,7 +194,7 @@ communication mechanism. So suggest to use a much generic name, "wd_chan".
     };
 ```
 
-In NOIOMMU scenario, "ss_dma" is physical address. But "ss_dma" is just IOVA 
+In NOSVA scenario, "ss_dma" is physical address. But "ss_dma" is just IOVA 
 in SVA scenario.
 
 "struct wd_chan" is expected to be allocated by vendor driver and used in wd 
@@ -93,9 +204,14 @@ hardware informations are stored in higher address. Vendor driver could
 convert the pointer type between "struct wd_chan" and "struct vendor_chan".
 
 
-## mmap
+### mmap
 
-We can use mmap() and unmap() directly.
+***void *wd_drv_mmap_qfr(struct wd_chan \*ch, enum uacce_qfrt qfrt, 
+size_t size);*** maps qfile region to user space. It's just fill "q->fd" 
+and "q->qfrs_offset[qfrt]" into mmap().
+
+***void wd_drv_unmap_qfr(struct wd_chan \*ch, void \*addr, 
+enum uacce_qfrt qfrt, size_t size);*** destroys the qfile region by unmap().
 
 
 ### SVA Scenario
@@ -113,9 +229,7 @@ The addressing interfaces in Share Domain scenario are in below.
 When a process wants to communicate with hardware device, it needs to get a 
 new by *wd_request_channel()*. The process could get memory by allocation 
 (malloc) or any existed memory. If the process wants to use multiple small 
-memory blocks, it just need to get multiple memory. SMM is unnecessary. And 
-the process doesn't need to map the allocated memory to any qfile region of 
-queue.
+memory blocks, it just need to get multiple memory.
 
 When a process wants to access the same memory by multiple queues, it could 
 rely on the POSIX shared memory API.
@@ -123,26 +237,34 @@ rely on the POSIX shared memory API.
 
 ### NOSVA Scenario
 
+
+In the NOSVA scenario, Warpdrive works whatever IOMMU is enabled or not. Since 
+scatter/gather mode isn't enabled, DMA needs continuous memory. So physical 
+address should to be filled for DMA transaction.
+
+When user application needs memory, it should send memory request to Warpdrive. 
+The memory with physical continuous address is allocated by DMA API in kernel 
+space. Warpdrive maps the continuous memory in kernel space to 
+**UACCE_QFRT_SS** qfile region.
+
+When user wants to integrate Warpdrive into some libraries with NOSVA scenario, 
+user has to do an extra memory copy since it needs the memory with physical 
+continuous address.
+
+And DMA API can't allocate large size memory. NOSVA scenario isn't the major 
+target in Warpdrive. Warpdrive is designed for SVA scenario. So NOSVA scenario 
+will be abandoned in the future.
+
+
 #### NOSVA Interfaces
 
-In the NOSVA scenario, it supports both IOMMU and NOIOMMU mode. So physical 
-address is used in DMA transaction. Since scatter/gather mode isn't enabled, 
-DMA needs continuous memory. Now *alloc_pages()* is used to allocate 
-continuous address. When user process needs physical memory, it has to 
-allocate memory from the reserved memory region. When user wants to integrate 
-warpdrive into some libraries, user has to do an extra memory copy to make 
-DMA working if memory isn't allocated from the reserved memory region.
-
-The addressing interfaces in NOSVA scenario are in below.
+The interfaces in NOSVA scenario are in below.
 
 ***int wd_request_channel(struct wd_chan \*ch);***
 
 ***void wd_release_channel(struct wd_chan \*ch);***
 
 ***void \*wd_reserve_mem(struct wd_chan \*ch, size_t size);***
-
-***int wd_share_reserved_memory(struct wd_chan \*ch, struct wd_chan 
-\*target_ch);***
 
 ***int wd_get_dma_from_va(struct wd_chan \*ch, void \*va);***
 
@@ -155,160 +277,14 @@ could only be called once in a process.
 When a process prepares the DMA transaction, it needs to convert VA into PA by 
 *wd_get_pa_from_va()*.
 
-Multiple devices could share same memory region in one process. Then the same 
-memory region needs to be shared between multiple devices. In order to manage 
-the refcount, *wd_share_reserved_memory()* is necessary when Queue B needs to 
-accesses the memory of Queue A.
+*wd_reserve_mem()* and *wd_get_dma_from_va()* are only used in NOSVA scenario. 
+Since NOSVA isn't a longtime supported scenario, these APIs will be abandoned 
+in the future.
 
 
-#### Limitations on NOSVA Scenario
+### Sharing address
 
-Physical address is used in DMA transactions. It's not good to expose physical 
-address to user space, since it'll cause security issues.
+The address could be easily shared in SVA scenario. But we don't support 
+sharing address in NOSVA scenario.
 
-DMA always requires continuous address. Now *alloc_pages()* tries to allocate 
-physical continuous memory in kernel space. But it may fail on large memory 
-size while memory is full of fragement.
-
-
-### SMM Interfaces
-
-**UACCE_QFRT_SS** qfile region is used in NOSVA Scenario. SMM could manage the 
-**UACCE_QFRT_SS** region.
-
-When a process needs to use multiple memory blocks, it could make use of SMM. 
-*smm_init()* could do the conversion from big chunk memory to smaller memory. 
-Then the process could allocate and free small memory blocks by *smm_alloc()* 
-and *smm_free()*.
-
-The SMM interfaces are in below.
-
-***int smm_init(void \*pt_addr, size_t size, int align_mask);***
-
-***void \*smm_alloc(void \*pt_addr, size_t size);***
-
-***void smm_free(void \*pt_addr, void \*ptr);***
-
-
-### API on sharing address
-
-The address could be easily shared in SVA scenario. But we have to use 
-*wd_share_reserved_memory()* to share address in NOSVA scenario. At the same 
-time, we provide the algorithm interfaces to user applicaton because we hope 
-user application not care hardware implementation in details. The two 
-requirements conflicts. So a few new APIs are necessary.
-
-*int wd_is_sharing()* indicates whether dma address could be shared. Return 1 
-for SVA scenario. Return 0 for NOSVA scenario.
-
-Then user don't need to care about any scenario. It only needs to check 
-whether the address is sharable.
-
-
-### APIs related to allocate memory by 3rd party library
-
-Allocating memory in different three scenarios are discussed above. If memory 
-is allocated by 3rd party library that could also be used by hardware, we 
-also need to support it in warpdrive. These APIs are necessary in below.
-
-```
-    struct wd_3rd_memory {
-        void *alloc_mem(void *va, void *dma_addr, size_t size);  // returns va
-        void free_mem(void *va);
-    };
-```
-***wd_register_3rd_memory(struct wd_chan \*chan, struct wd_3rd_memory \*mem)*** 
-registers the memory allocation and free in warpdrive.
-
-***wd_unregister_3rd_memory(struct wd_chan \*chan)*** unregisters the 
-memory allocation and free in warpdrive.
-
-When 3rd party memory is used, we need to mark it in flags field of 
-"struct wd_chan".
-
-These two APIs should be used by user application. And the 
-"struct wd_3rd_memory" should be binded into "struct wd_chan", since "ss_va" 
-and "ss_dma" are also stored in "struct wd_chan". And libwd should invoke 3rd 
-party memory allocation function when map **UACCE_QFRT_SS** region to user 
-application. UACCE should avoid to allocate memory if it finds channel could 
-use 3rd party memory allocation.
-
-Note: *wd_register_3rd_memory()* should be used between *wd_request_channel()* 
-and *mmap()*. *wd_unregister_3rd_memory()* should be used between *munmap()* 
-and *wd_unregister_3rd_memory()*.
-
-
-## Compression Algorithm Interfaces
-
-The hardware accelerator is shared in the system. When compression is ongoing, 
-warpdrive needs to track the current task. So a context is necessary to 
-record key informations.
-
-```
-    struct wd_comp_ctx {
-        struct wd_chan *ch;
-        int alg_type;      /* zlib or gzip */
-        int stream_mode;   /* stateless or stateful */
-        int new_stream;    /* old stream or new stream */
-        int flush_type;    /* NO_FLUSH, SYNC_FLUSH, FINISH, INVALID_FLUSH */
-        void *private;     /* vendor specific structure */
-    };
-```
-
-The context should be allocated in user application. From the view of 
-compression, there're two parts, compression and decompression. From the view 
-of operation, there're two operations, synchronous and asychronous operation. 
-These APIs are the interfaces between user application and vendor driver.
-
-***wd_alg_deflate(struct wd_comp_ctx \*ctx, void \*src, unsigned int 
-\*src_len, void \*dst, unsigned int \*dst_len)*** 
-executes the synchronous compression. The function is blocked until 
-compression done.
-
-***wd_alg_inflate(struct wd_comp_ctx \*ctx, void \*src, unsigned int 
-\*src_len, void \*dst, unsigned int \*dst_len)*** 
-executes the synchronous decompression. The function is blocked until 
-decompression done.
-
-***wd_alg_async_deflate(struct wd_comp_ctx \*ctx, callback_t \*callback, 
-void \*src, unsigned int \*src_len, void \*dst, unsigned int \*dst_len)*** 
-executes the asynchronous compression. The function returns immediately while 
-compression is still on-going. When the compression is done, a predefined 
-callback in user application is executed.
-
-***wd_alg_async_inflate(struct wd_comp_ctx \*ctx, callback_t \*callback, 
-void \*src, unsigned int \*src_len, void \*dst, unsigned int \*dst_len)*** 
-executes the asynchronous decompression. The function returns immediately 
-while decompression is still on-going. When the decompression is done, a 
-predefined callback in user application is executed.
-
-User application needs to configure *struct wd_comp_ctx* directly before 
-starting deflation/inflation.
-
-These APIs are the interfaces between vendor driver and warpdrive help 
-functions.
-
-```
-    struct wd_alg_comp {
-        int (*init)(...);
-        void (*exit)(...);
-        int (*deflate)(...);
-        int (*inflate)(...);
-        int (*callback)(...);
-        ...
-    };
-```
-
-***wd_alg_comp_register(struct wd_alg_comp \*vendor_comp)*** registers the 
-vendor compression and decompression implementation in warpdrive.
-
-***wd_alg_comp_unregister(struct wd_alg_comp \*vendor_comp)*** unregisters 
-the vendor compression and decompression implementation in warpdrive.
-
-
-### Support zlib-ng
-
-It's discussed in another document "Thoughts_on_zlib_ng.md". The 
-implementation should be in warpdrive. zlib-ng only calls the exported 
-interfaces in warpdrive.
 
