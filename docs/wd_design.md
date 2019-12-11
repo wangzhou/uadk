@@ -184,25 +184,32 @@ communication mechanism. So suggest to use a much generic name, "wd_chan".
 
 ```
     struct wd_chan {
-        int fd;
+        int  fd;
         char dev_path[PATH_STR_SIZE];
         void *ss_va;
         void *ss_dma;
         void *dev_info;   // point to struct uacce_dev_info
-        unsigned int flags; // WD_CHANNEL_FLAG_3RD_MEM_ALLOC
-        struct wd_3rd_memory mem_3rd;
+        int  (*alloc_chan)(...);
+        void (*free_chan)(...);
+        void *priv;       // point to vendor specific structure
     };
 ```
 
 In NOSVA scenario, "ss_dma" is physical address. But "ss_dma" is just IOVA 
 in SVA scenario.
 
-"struct wd_chan" is expected to be allocated by vendor driver and used in wd 
-helper functions. Suggest vendor driver allocates "struct vendor_chan" 
-instead. The head of "struct vendor_chan" is "struct wd_queue". Additional 
-hardware informations are stored in higher address. Vendor driver could 
-convert the pointer type between "struct wd_chan" and "struct vendor_chan".
+Since algorithm interface is accessed by user application, channel is an 
+internal resource between algorithm layer and vendor driver layer. User 
+application can't access "struct wd_chan".
 
+"struct wd_chan" is allocated by *wd_request_channel()* and released by 
+*wd_release_channel()* in algorithm layer. The "priv" field points to vendor 
+specific structure.
+
+*wd_request_channel()* actually compares device name from sysfs node with 
+registered driver name. If they're matched, vendor implementation on algorithm 
+APIs are bound to the context and vendor impelmentation on channels are bound 
+to "struct wd_chan".
 
 ### mmap
 
@@ -219,8 +226,6 @@ enum uacce_qfrt qfrt, size_t size);*** destroys the qfile region by unmap().
 In the SVA scenario, IOVA is used in DMA transaction. DMA observes continuous 
 memory because of IOVA, and it's unnecessary to reserve any memory in kernel. 
 So user process could allocate or get memory from anywhere.
-
-The addressing interfaces in Share Domain scenario are in below.
 
 ***int wd_request_channel(struct wd_chan \*ch);***
 
