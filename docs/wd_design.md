@@ -1,7 +1,15 @@
 
 # Warpdrive Architecture Design
 
-version 0.90
+
+| Version | Author | Changes |
+| --- | :---- | :---- |
+|  0.91   | Haojian Zhuang |1) Remove the content of 3rd party memory  |
+|         | Zhou Wang      |   allocation. |
+|         |                |2) Remove "ss_va" and "ss_dma" from struct wd_chan.|
+|         |                |3) Change to user app polling async interface.  |
+|         |                |4) Add examples.  |
+
 
 ## Overview
 
@@ -73,11 +81,7 @@ compression or decompression.
 
     struct wd_comp_ctx {
         int                 alg_type;    /* zlib or gzip */
-        
-        /* 3rd party memory allocation */
-        void                *(*alloc_mem)(size_t size);
-        void                (*free_mem)(void *address);
-        void                *(*va_to_dma)(void *address);
+        int                 running_num; /* number of async running task */
         
         struct wd_alg_comp  *hw;
         void                *priv;       /* vendor specific structure */
@@ -92,7 +96,8 @@ compression or decompression.
     };
 ```
 
-***struct wd_comp_ctx \*wd_alg_comp_alloc_ctx(void)*** requests a context.
+***struct wd_comp_ctx \*wd_alg_comp_alloc_ctx(int alg_type)*** requests a 
+context.
 
 ***void wd_alg_comp_free_ctx(struct wd_comp_ctx \*ctx)*** releases a context.
 
@@ -108,8 +113,10 @@ buffers. This structure is the input parameter of compression and decompression.
 If user application needs the synchronous compression or decompression, 
 functions are used in below.
 
-***wd_alg_compress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg)*** 
-***wd_alg_decompress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg)*** 
+***wd_alg_compress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg, 
+void \*tag)***  
+***wd_alg_decompress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg, 
+void \*tag)*** 
 
 When the above two functions are invoked, user application is blocked until
 the hardware operation is done.
@@ -117,15 +124,17 @@ the hardware operation is done.
 If user application wants to handle more tasks in parallel, asynchronous 
 operations are used in below.
 
-***wd_alg_async_compress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg, 
-callback_t \*callback)***
-***wd_alg_async_decompress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg, 
-callback_t \*callback)***
+***wd_alg_comp_poll(struct wd_comp_ctx \*ctx)***  
 
-When the above two functions are invoked, they return immediately. User 
-application could execute other tasks without delay. The *callback()* function 
-is defined in user application. When hardware compression or decompression
-is finished, it calls the callback function to inform user application.
+In asnychronous mode, user application sends multiple compression requests 
+to hardware accelerators by one channel. Although data are pipelined to 
+hardware accelerator, vendor driver doesn't need to poll the status of 
+hardware accelerator. It could save time that cost of polling status on each 
+request.
+
+Because *wd_alg_comp_poll()* is a polling function. Suggest user application 
+invokes the polling for multiple times. Otherwise, it may miss the event of
+hardware accelerator completion.
 
 
 #### Register Compression Algorithm
@@ -139,15 +148,6 @@ When the request of compression or decompression arrives, it compares the
 device name with vendor driver. If they match, related hardware implementation 
 is linked to "hw" field of "struct wd_comp_ctx". By this way, vendor driver 
 binds to compression algorithm layer with context.
-
-
-#### 3rd party memory allocation
-
-In addition, we hope to support the case that 3rd party application allocates 
-memory and shares the address to Warpdrive. It's necessary to provide the hook 
-in the context. If user application doesn't want to use 3rd party application, 
-vendor driver could fill the function pointer to Warpdrive helper or malloc(). 
-By now, 3rd party memory allocation isn't supported by UACCE yet.
 
 
 ## Warpdrive helper interfaces
@@ -186,17 +186,12 @@ communication mechanism. So suggest to use a much generic name, "wd_chan".
     struct wd_chan {
         int  fd;
         char dev_path[PATH_STR_SIZE];
-        void *ss_va;
-        void *ss_dma;
         void *dev_info;   // point to struct uacce_dev_info
         int  (*alloc_chan)(...);
         void (*free_chan)(...);
         void *priv;       // point to vendor specific structure
     };
 ```
-
-In NOSVA scenario, "ss_dma" is physical address. But "ss_dma" is just IOVA 
-in SVA scenario.
 
 Since algorithm interface is accessed by user application, channel is an 
 internal resource between algorithm layer and vendor driver layer. User 
@@ -238,6 +233,9 @@ memory blocks, it just need to get multiple memory.
 
 When a process wants to access the same memory by multiple queues, it could 
 rely on the POSIX shared memory API.
+
+By the way, SVA scenario is not limited in DMA transaction. We just use DMA 
+transaction as an example at here.
 
 
 ### NOSVA Scenario
@@ -293,3 +291,50 @@ The address could be easily shared in SVA scenario. But we don't support
 sharing address in NOSVA scenario.
 
 
+## Example
+
+### Example in user application
+
+Here's an example of compression in user application. User application just 
+needs a few APIs to complete synchronous compression.
+
+![comp_sync](./wd_comp_sync.png)
+
+Synchoronous operation means polling hardware accelerator status of each 
+operation. It costs too much CPU resources on polling and causes performance 
+down. User application could divide the job into multiple parts. Then it 
+could make use of asynchronous mechanism to save time on polling.
+
+![comp_async](./wd_comp_async.png)
+
+By the way, there's also a limitation on asynchronous operation. Let's assume 
+there're two frames, A frame and B frame. If the output of hardware accelerator 
+is fixed-length, then we can calculate the output address of A and B frame. If 
+the length of hardware accelerator output isn't fixed, we have to set the 
+temperary address as the output of B frame. Then a memory copy operation is 
+required. So we use compression as a demo to explain asynchronous operation. 
+It doesn't mean that we recommend to use asynchronous compression.
+
+
+### Example in vendor driver
+
+Here's an example of implementing vendor driver to support compression.
+
+At first, vendor driver needs to implement the instance of 
+"struct wd_alg_comp". The name field of "struct wd_alg_comp" should be "zlib" 
+or any compression algorithm name. Then add the instance into the algorithm 
+list in Warpdrive helper layer.
+
+When user application invokes "wd_alg_comp_alloc_ctx()", Warpdrive needs to 
+find a valid device with the algorithm type, "zlib". Then Warpdrive finds a 
+proper vendor driver that supports the device. At this time, those compression 
+hooks are bound to hooks in the context, "struct wd_comp_ctx". Then 
+"wd_comp_ctx->init()" is called. In this function, vendor driver tries to 
+request channel and initialize hardware.
+
+When user application invokes "wd_alg_compress()", "wd_comp_ctx->deflate()" is 
+called. It points to the implementation in vendor driver.
+
+When user application invokes "wd_alg_comp_free_ctx()", "wd_comp_ctx->exit()" 
+is called. It also points to the implementation in vendor driver. It releases 
+channel and free hardware.
