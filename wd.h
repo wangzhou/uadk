@@ -122,6 +122,7 @@ struct wd_queue {
 	void *ss_pa;
 	int dev_flags;
 	unsigned long qfrs_offset[UACCE_QFRT_MAX];
+	void *info; /* queue private */
 };
 
 static inline void *wd_get_pa_from_va(struct wd_queue *q, void *va)
