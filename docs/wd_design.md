@@ -9,6 +9,7 @@
 |         |                |2) Remove "ss_va" and "ss_dma" from struct wd_chan.|
 |         |                |3) Change to user app polling async interface.  |
 |         |                |4) Add examples.  |
+|  0.92   |                |1) Reorganize the document. |
 
 
 ## Overview
@@ -18,7 +19,7 @@ hardware accelerator in user space easily and efficiently. It includes a kernel
 driver named UACCE and a user space library named libwd.
 
 libwd provides a wrapper of basic UACCE user space interfaces, they will be a 
-set of help functions. And libwd offers a set of APIs based on specific 
+set of helper functions. And libwd offers a set of APIs based on specific 
 algorithms to users, who could use this set of APIs to do specific task without 
 accessing low level implementations. libwd offers a register interface to let 
 hardware vendors to register their own user space driver, which could use above 
@@ -26,11 +27,43 @@ help functions to do UACCE related work.
 
 ![overview](./wd_overview.png)
 
-The key point of Warpdrive is that it is based on Linux SVA technology, which 
-makes device sharing the same virtual address space with CPU in user space. 
-This technology is based on IOMMU.
-
 This document focuses on the design of libwd.
+
+
+## Based Technology
+
+Warpdrive is the architecture to use accelerator in user space. The IOMMU 
+creates mapping between IOVA and PA, and software could configure IOVA on 
+hardware accelerators in user space directly.
+
+A new technology, SVA (Shared Virtual Address), is the key point of Warpdrive. 
+With SVA, IOMMU shares the same page table with MMU that is used by CPU. It 
+means the same virtual address could be accepted by IOMMU. It could share 
+the memory easily between CPU and devices without any memory copy.
+
+When SVA feature isn't enabled, the CPU address is different from device 
+address in Warpdrive. These two scenarioes are called SVA scenario and NOSVA 
+scenario in Warpdrive.
+
+In SVA scenario, memory is allocated in user space. In NOSVA scenario, memory 
+is allocated by DMA API in kernel space. So memory copy is required. If IOMMU 
+is disabled in NOSVA scenario, physical address has to be used. This behavior 
+exposes physical address to user space. It'll cause the potential security 
+issue. The NOSVA scenario is only used when SVA feature is disabled. It'll be 
+removed in the future.
+
+In SVA scenario, memory address is always virtual address whatever it's in 
+user application or user (vendor) driver. So sharing memory address is easily 
+without any memory copy. In NOSVA scenario, memory address is virtual address 
+only in user application. But it's physical address in vendor driver. Virtual 
+address could be shared. But it implied memory copy between vendor driver and 
+user application. Performance will be hurted in this case.
+
+Since it's designed to allocate memory by DMA API in kernel space, it also 
+limited only small piece of memory could be allocated in NOSVA scenario.
+
+Because of the limitations on NOSVA scenario, it'll be removed in the future. 
+Warpdrive is designed for SVA scenario.
 
 
 ## UACCE user space API
@@ -48,6 +81,66 @@ accelerator device, which attributes will be showed in sysfs, like
 user will get a channel to access the resource of this accelerator device. 
 User can configure above channel by ioctl of this opened fd, and mmap hardware 
 resource, like MMIO or channel to user space.
+
+
+## Warpdrive Helper Functions
+
+### Channel
+
+Channel is the hardware resource that used to communicate between vendor driver 
+and hardware accelerator.
+
+In SVA scenario, vendor driver needs to request and release the channel.
+
+***int wd_request_channel(struct wd_chan \*ch);***
+
+***void wd_release_channel(struct wd_chan \*ch);***
+
+When a process wants to communicate with hardware device, it needs to get a 
+new channel by *wd_request_channel()*. Since memory address could be either 
+allocated or shared in user application, vendor driver needs to bind the 
+channel and memory address together.
+
+When a process wants to access the same memory by multiple queues, it could 
+rely on the POSIX shared memory API.
+
+In NOSVA scenario, vendor driver also needs to request and release the channel.
+
+***int wd_request_channel(struct wd_chan \*ch);***
+
+***void wd_release_channel(struct wd_chan \*ch);***
+
+
+### Extra Helper functions in NOSVA
+
+Hardware always requires continuous address. When IOMMU is disabled in NOSVA 
+scenario, physical address is required and allocated by DMA API. A memory 
+allocation interface is required in NOSVA scenario.
+
+***void \*wd_reserve_mem(struct wd_chan \*ch, size_t size);***
+
+And vendor driver needs to maintain the mapping between virtual address and 
+physical (dma) address.
+
+***int wd_get_dma_from_va(struct wd_chan \*ch, void \*va);***
+
+And DMA API can't allocate large size memory.
+
+
+### mmap
+
+Whatever it's SVA or NOSVA scenario, virtual address always needs to map to 
+physical (dma) address.
+
+***void *wd_drv_mmap_qfr(struct wd_chan \*ch, enum uacce_qfrt qfrt, 
+size_t size);*** maps qfile region to user space. It's just fill "q->fd" 
+and "q->qfrs_offset[qfrt]" into mmap().
+
+***void wd_drv_unmap_qfr(struct wd_chan \*ch, void \*addr, 
+enum uacce_qfrt qfrt, size_t size);*** destroys the qfile region by unmap().
+
+qfrt means queue file region type. The details could be found in UACCE kernel 
+patch set <https://lkml.org/lkml/2019/11/22/1728>.
 
 
 ## Warpdrive Algorithm Interface
@@ -95,6 +188,11 @@ compression or decompression.
         int          flush_type;  /* NO_FLUSH, SYNC_FLUSH, FINISH, INVALID */
     };
 ```
+
+"src" and "dst" fields of "struct wd_comp_arg" are virtual address. Although 
+DMA address is used in NOSVA scenario, user application doesn't need the DMA 
+address. So they're are stored in "priv" structure by vendor driver.
+
 
 ***struct wd_comp_ctx \*wd_alg_comp_alloc_ctx(int alg_type)*** requests a 
 context.
@@ -148,147 +246,6 @@ When the request of compression or decompression arrives, it compares the
 device name with vendor driver. If they match, related hardware implementation 
 is linked to "hw" field of "struct wd_comp_ctx". By this way, vendor driver 
 binds to compression algorithm layer with context.
-
-
-## Warpdrive helper interfaces
-
-Warpdrive helper interfaces that are based on UACCE in kernel space. UACCE 
-supports two scenarios, SVA scenario and NOSVA scenario.
-
-Some structures are evolving and all scenarios are mentioned in below.
-
-### struct uacce_dev_info
-
-```
-    struct uacce_dev_info {
-        int node_id;
-        int numa_dis;
-        int iommu_type;
-        int flags;
-        ...
-        unsigned long qfrs_offset[UACCE_QFRT_MAX];
-    };
-```
-
-Most fields of "uacce_dev_info" are parsed from sysfs node. This structure 
-is used in Warpdrive helper layer. And it won't be exported to user application.
-
-
-### struct wd_chan
-
-QM (queue management) is a hardware communication mechanism that is used in 
-Hisilicon platform. But it's not common enough that every vendor adopts this 
-communication mechanism. So suggest to use a much generic name, "wd_chan". 
-*(chan means channel)*
-
-
-```
-    struct wd_chan {
-        int  fd;
-        char dev_path[PATH_STR_SIZE];
-        void *dev_info;   // point to struct uacce_dev_info
-        int  (*alloc_chan)(...);
-        void (*free_chan)(...);
-        void *priv;       // point to vendor specific structure
-    };
-```
-
-Since algorithm interface is accessed by user application, channel is an 
-internal resource between algorithm layer and vendor driver layer. User 
-application can't access "struct wd_chan".
-
-"struct wd_chan" is allocated by *wd_request_channel()* and released by 
-*wd_release_channel()* in algorithm layer. The "priv" field points to vendor 
-specific structure.
-
-*wd_request_channel()* actually compares device name from sysfs node with 
-registered driver name. If they're matched, vendor implementation on algorithm 
-APIs are bound to the context and vendor impelmentation on channels are bound 
-to "struct wd_chan".
-
-### mmap
-
-***void *wd_drv_mmap_qfr(struct wd_chan \*ch, enum uacce_qfrt qfrt, 
-size_t size);*** maps qfile region to user space. It's just fill "q->fd" 
-and "q->qfrs_offset[qfrt]" into mmap().
-
-***void wd_drv_unmap_qfr(struct wd_chan \*ch, void \*addr, 
-enum uacce_qfrt qfrt, size_t size);*** destroys the qfile region by unmap().
-
-
-### SVA Scenario
-
-In the SVA scenario, IOVA is used in DMA transaction. DMA observes continuous 
-memory because of IOVA, and it's unnecessary to reserve any memory in kernel. 
-So user process could allocate or get memory from anywhere.
-
-***int wd_request_channel(struct wd_chan \*ch);***
-
-***void wd_release_channel(struct wd_chan \*ch);***
-
-When a process wants to communicate with hardware device, it needs to get a 
-new by *wd_request_channel()*. The process could get memory by allocation 
-(malloc) or any existed memory. If the process wants to use multiple small 
-memory blocks, it just need to get multiple memory.
-
-When a process wants to access the same memory by multiple queues, it could 
-rely on the POSIX shared memory API.
-
-By the way, SVA scenario is not limited in DMA transaction. We just use DMA 
-transaction as an example at here.
-
-
-### NOSVA Scenario
-
-
-In the NOSVA scenario, Warpdrive works whatever IOMMU is enabled or not. Since 
-scatter/gather mode isn't enabled, DMA needs continuous memory. So physical 
-address should to be filled for DMA transaction.
-
-When user application needs memory, it should send memory request to Warpdrive. 
-The memory with physical continuous address is allocated by DMA API in kernel 
-space. Warpdrive maps the continuous memory in kernel space to 
-**UACCE_QFRT_SS** qfile region.
-
-When user wants to integrate Warpdrive into some libraries with NOSVA scenario, 
-user has to do an extra memory copy since it needs the memory with physical 
-continuous address.
-
-And DMA API can't allocate large size memory. NOSVA scenario isn't the major 
-target in Warpdrive. Warpdrive is designed for SVA scenario. So NOSVA scenario 
-will be abandoned in the future.
-
-
-#### NOSVA Interfaces
-
-The interfaces in NOSVA scenario are in below.
-
-***int wd_request_channel(struct wd_chan \*ch);***
-
-***void wd_release_channel(struct wd_chan \*ch);***
-
-***void \*wd_reserve_mem(struct wd_chan \*ch, size_t size);***
-
-***int wd_get_dma_from_va(struct wd_chan \*ch, void \*va);***
-
-When a process wants to communicate the hardware device, it calls 
-*wd_request_channel()* and *wd_reserve_mem()* in turn to get a chunk of memory.
-
-*wd_reserve_mem()* maps the **UACCE_QFRT_SS** qfile region to a process, so it 
-could only be called once in a process.
-
-When a process prepares the DMA transaction, it needs to convert VA into PA by 
-*wd_get_pa_from_va()*.
-
-*wd_reserve_mem()* and *wd_get_dma_from_va()* are only used in NOSVA scenario. 
-Since NOSVA isn't a longtime supported scenario, these APIs will be abandoned 
-in the future.
-
-
-### Sharing address
-
-The address could be easily shared in SVA scenario. But we don't support 
-sharing address in NOSVA scenario.
 
 
 ## Example
