@@ -10,6 +10,11 @@
 |         |                |3) Change to user app polling async interface.  |
 |         |                |4) Add examples.  |
 |  0.92   |                |1) Reorganize the document. |
+|         |                |2) Remove some structures that are unused in apps. |
+|  0.93   |                |1) Avoid to discuss whether IOMMU disabled in NOSVA |
+|         |                |   scenario since it's not important. |
+|         |                |2) Remove multiple queue since it's transparent to |
+|         |                |   user application. |
 
 
 ## Overview
@@ -46,11 +51,11 @@ address in Warpdrive. These two scenarioes are called SVA scenario and NOSVA
 scenario in Warpdrive.
 
 In SVA scenario, memory is allocated in user space. In NOSVA scenario, memory 
-is allocated by DMA API in kernel space. So memory copy is required. If IOMMU 
-is disabled in NOSVA scenario, physical address has to be used. This behavior 
-exposes physical address to user space. It'll cause the potential security 
-issue. The NOSVA scenario is only used when SVA feature is disabled. It'll be 
-removed in the future.
+is allocated by DMA API in kernel space. So memory copy is required. And 
+physical (DMA) address has to be used in vendor driver. This behavior exposes 
+physical address to user space. It'll cause the potential security issue. 
+The NOSVA scenario is only used when SVA feature is disabled. It'll be removed 
+in the future.
 
 In SVA scenario, memory address is always virtual address whatever it's in 
 user application or user (vendor) driver. So sharing memory address is easily 
@@ -101,9 +106,6 @@ new channel by *wd_request_channel()*. Since memory address could be either
 allocated or shared in user application, vendor driver needs to bind the 
 channel and memory address together.
 
-When a process wants to access the same memory by multiple queues, it could 
-rely on the POSIX shared memory API.
-
 In NOSVA scenario, vendor driver also needs to request and release the channel.
 
 ***int wd_request_channel(struct wd_chan \*ch);***
@@ -113,14 +115,14 @@ In NOSVA scenario, vendor driver also needs to request and release the channel.
 
 ### Extra Helper functions in NOSVA
 
-Hardware always requires continuous address. When IOMMU is disabled in NOSVA 
-scenario, physical address is required and allocated by DMA API. A memory 
-allocation interface is required in NOSVA scenario.
+Hardware always requires continuous address. Physical (DMA) address is required 
+and allocated by DMA API in NOSVA scenario. A memory allocation interface is 
+required at here.
 
 ***void \*wd_reserve_mem(struct wd_chan \*ch, size_t size);***
 
 And vendor driver needs to maintain the mapping between virtual address and 
-physical (dma) address.
+physical (DMA) address.
 
 ***int wd_get_dma_from_va(struct wd_chan \*ch, void \*va);***
 
@@ -130,7 +132,7 @@ And DMA API can't allocate large size memory.
 ### mmap
 
 Whatever it's SVA or NOSVA scenario, virtual address always needs to map to 
-physical (dma) address.
+physical (DMA) address.
 
 ***void *wd_drv_mmap_qfr(struct wd_chan \*ch, enum uacce_qfrt qfrt, 
 size_t size);*** maps qfile region to user space. It's just fill "q->fd" 
@@ -185,7 +187,6 @@ compression or decompression.
         size_t       src_len;
         void         *dst;
         size_t       dst_len;
-        int          flush_type;  /* NO_FLUSH, SYNC_FLUSH, FINISH, INVALID */
     };
 ```
 
