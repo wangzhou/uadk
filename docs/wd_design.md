@@ -1,5 +1,5 @@
 
-# Warpdrive Architecture Design
+# WarpDrive Architecture Design
 
 
 | Version | Author | Changes |
@@ -15,65 +15,67 @@
 |         |                |   scenario since it's not important. |
 |         |                |2) Remove multiple queue since it's transparent to |
 |         |                |   user application. |
+|  0.94   |                |1) Split WarpDrive into UACCE, libwd, algorithm |
+|         |                |   libraries and libaffinity. Change doc according |
+|         |                |   to this notion. |
+|         |                |2) Illustrate how to select hardware accelerator. |
+|         |                |3) Illustrate how libaffinity working. |
 
 
 ## Overview
 
-Warpdrive is an accelerator software architecture to help vendors to use their 
-hardware accelerator in user space easily and efficiently. It includes a kernel 
-driver named UACCE and a user space library named libwd.
-
-libwd provides a wrapper of basic UACCE user space interfaces, they will be a 
-set of helper functions. And libwd offers a set of APIs based on specific 
-algorithms to users, who could use this set of APIs to do specific task without 
-accessing low level implementations. libwd offers a register interface to let 
-hardware vendors to register their own user space driver, which could use above 
-help functions to do UACCE related work.
+WarpDrive is a framework for user application to access hardware accelerator 
+in a unified, secure, and efficient way. WarpDrive is comprised of UACCE, libwd 
+and many other algorithm libraries for different applications.
 
 ![overview](./wd_overview.png)
 
-This document focuses on the design of libwd.
+Libwd provides a wrapper of basic UACCE user space interfaces, they will be a 
+set of helper functions. Libwd offers a register interface to let hardware 
+vendors to register their own user space driver, which could use above helper 
+functions to do UACCE related work.
+
+Algorithm libraries offer a set of APIs to users, who could use this set of 
+APIs to do specific task without accessing low level implementations.
+
+This document focuses on the design of libwd and algorithm libraries.
 
 
 ## Based Technology
 
-Warpdrive is the architecture to use accelerator in user space. The IOMMU 
-creates mapping between IOVA and PA, and software could configure IOVA on 
-hardware accelerators in user space directly.
-
-A new technology, SVA (Shared Virtual Address), is the key point of Warpdrive. 
-With SVA, IOMMU shares the same page table with MMU that is used by CPU. It 
-means the same virtual address could be accepted by IOMMU. It could share 
-the memory easily between CPU and devices without any memory copy.
+WarpDrive relies on SVA (Shared Virtual Address). With SVA, IOMMU shares 
+the same page table with MMU that is used by CPU. It means the same virtual 
+address could be accepted by IOMMU. It could share the memory easily between 
+CPU and devices without any memory copy.
 
 When SVA feature isn't enabled, the CPU address is different from device 
-address in Warpdrive. These two scenarioes are called SVA scenario and NOSVA 
-scenario in Warpdrive.
+address in WarpDrive. These two scenarioes are called SVA scenario and NOSVA 
+scenario.
 
 In SVA scenario, memory is allocated in user space. In NOSVA scenario, memory 
-is allocated by DMA API in kernel space. So memory copy is required. And 
-physical (DMA) address has to be used in vendor driver. This behavior exposes 
-physical address to user space. It'll cause the potential security issue. 
-The NOSVA scenario is only used when SVA feature is disabled. It'll be removed 
-in the future.
+is allocated in kernel space. So memory copy is required. And physical address 
+has to be used in vendor driver. This behavior exposes physical address to 
+user space. It'll cause the potential security issue. The NOSVA scenario is 
+only used when SVA feature is disabled. And it'll be removed in the future.
 
 In SVA scenario, memory address is always virtual address whatever it's in 
-user application or user (vendor) driver. So sharing memory address is easily 
-without any memory copy. In NOSVA scenario, memory address is virtual address 
-only in user application. But it's physical address in vendor driver. Virtual 
-address could be shared. But it implied memory copy between vendor driver and 
-user application. Performance will be hurted in this case.
+user application or vendor driver. So sharing memory address is easily without 
+any memory copy. In NOSVA scenario, memory address is virtual address only 
+in user application. But it's physical or bus address in vendor driver. Of 
+course, virtual address could be shared without any issue. But it implied 
+memory copy between vendor driver and user application. Performance will 
+be hurted in this case.
 
-Since it's designed to allocate memory by DMA API in kernel space, it also 
-limited only small piece of memory could be allocated in NOSVA scenario.
+Because it has to allocate memory in kernel space for continuous address, it 
+is limited to allocate small pieces of memory in NOSVA scenario.
 
-Because of the limitations on NOSVA scenario, it'll be removed in the future. 
-Warpdrive is designed for SVA scenario.
+According to the limitations on NOSVA scenario, it'll be removed in the future. 
+WarpDrive is designed for SVA scenario.
 
 
 ## UACCE user space API
 
-As the kernel driver of Warpdrive, UACCE offers a set of API between kernel 
+As the kernel driver of WarpDrive, UACCE offers a set of APIs between kernel 
 and user space.
 
 Since UACCE driver is still under upstreaming process, latest APIs of UACCE 
@@ -83,56 +85,54 @@ in "uacce.rst" and "sysfs-driver-uacce" of this patchset.
 The basic idea of UACCE driver is that a char device will be created for an 
 accelerator device, which attributes will be showed in sysfs, like 
 "/sys/class/uacce/[device]/[attr_files]". After opening this char device once, 
-user will get a channel to access the resource of this accelerator device. 
-User can configure above channel by ioctl of this opened fd, and mmap hardware 
-resource, like MMIO or channel to user space.
+vendor driver will get a channel to access the resource of this accelerator 
+device. Vendor driver can configure above channel by ioctl of this opened fd, 
+and mmap hardware resource, like MMIO or channel to user space.
 
 
-## Warpdrive Helper Functions
+## Libwd Helper Functions
+
+Hardware accelerator communicates with CPU by shared memory. Libwd helper 
+functions provide the interface that vendor driver could access memory from 
+WarpDrive.
+
 
 ### Channel
 
-Channel is the hardware resource that used to communicate between vendor driver 
-and hardware accelerator.
+Channel is a dual directional hardware communication resource between hardware 
+accelerator and CPU. When vendor driver wants to access memory, a channel is 
+the requisite resource.
 
-In SVA scenario, vendor driver needs to request and release the channel.
+Channel is a hardware resource. UACCE creates a char dev for each registered 
+hardware device. Once the char dev is opened by vendor driver, a channel is 
+allocated by UACCE. *fd* (file descriptor) represents the channel that could 
+be accessed by vendor driver. In libwd, channel is defined as *struct wd_chan*.
 
-***int wd_request_channel(struct wd_chan \*ch);***
+```
+    struct wd_chan {
+        int  fd;
+        char node_path[];
+        void *priv;   // point to vendor specific structure
+    };
+```
+
+Vendor driver must know which hardware accelerator should be accessed. From 
+the view of vendor driver, the device is represented by device node path. So 
+it should be recorded in *struct wd_chan*, and it's the key parameter to 
+allocate a channel.
+
+Libwd defines APIs to allocate channels.
+
+***struct wd_chan \*wd_request_channel(char *node_path);***
 
 ***void wd_release_channel(struct wd_chan \*ch);***
-
-When a process wants to communicate with hardware device, it needs to get a 
-new channel by *wd_request_channel()*. Since memory address could be either 
-allocated or shared in user application, vendor driver needs to bind the 
-channel and memory address together.
-
-In NOSVA scenario, vendor driver also needs to request and release the channel.
-
-***int wd_request_channel(struct wd_chan \*ch);***
-
-***void wd_release_channel(struct wd_chan \*ch);***
-
-
-### Extra Helper functions in NOSVA
-
-Hardware always requires continuous address. Physical (DMA) address is required 
-and allocated by DMA API in NOSVA scenario. A memory allocation interface is 
-required at here.
-
-***void \*wd_reserve_mem(struct wd_chan \*ch, size_t size);***
-
-And vendor driver needs to maintain the mapping between virtual address and 
-physical (DMA) address.
-
-***int wd_get_dma_from_va(struct wd_chan \*ch, void \*va);***
-
-And DMA API can't allocate large size memory.
 
 
 ### mmap
 
-Whatever it's SVA or NOSVA scenario, virtual address always needs to map to 
-physical (DMA) address.
+With a channel, memory could be shared between CPU and hardware accelerator. 
+Libwd provides API to create the mapping between virtual address and physical 
+address.
 
 ***void *wd_drv_mmap_qfr(struct wd_chan \*ch, enum uacce_qfrt qfrt, 
 size_t size);*** maps qfile region to user space. It's just fill "q->fd" 
@@ -145,43 +145,233 @@ qfrt means queue file region type. The details could be found in UACCE kernel
 patch set <https://lkml.org/lkml/2019/11/22/1728>.
 
 
-## Warpdrive Algorithm Interface
+### Extra Helper functions in NOSVA
 
-Warpdrive is a framework that supports multiple algorithm interfaces. We'll 
+Hardware always requires continuous address. Since physical address is 
+allocated in kernel. Vendor driver needs libwd to provide an API to allocate 
+memory in kernel space.
+
+***void \*wd_reserve_mem(struct wd_chan \*ch, size_t size);***
+
+*wd_reserve_mem()* not only allocates memory in kernel, but also maps the 
+physical address to virtual address. Then it returns the virtual address if it 
+succeeds. Actually the mapping is created by *wd_drv_mmap_qfr()*, and it's 
+invoked in *wd_reserve_mem()* by default.
+
+Since hardware accelerator needs to access memory, vendor driver needs to 
+provide physical address to hardware accelerator. Libwd helps vendor driver 
+to maintain the mapping between virtual address and physical address, and 
+returns physical address.
+
+***void \*wd_get_dma_from_va(struct wd_chan \*ch, void \*va);***
+
+
+### Register Vendor Driver
+
+Hardware accelerator registers in UACCE as a char dev. At the same time, 
+hardware informations of accelerators are also exported in sysfs node. For 
+example, the file path of char dev is */dev/misc/[Accel]* and hardware 
+informations are in */sys/class/uacce/[Accel]/*. The same name is shared in 
+both devfs and sysfs. The *Accel* is comprised of name, dash and id.
+
+```
+    struct wd_drv {
+        char     drv_name[MAX_DEV_NAME_LEN];
+        int      (\*alloc_chan)(struct wd_chan \*chan);
+        void     (\*free_chan)(struct wd_chan \*chan);
+    };
+```
+
+Each vendor driver implements an instance of *struct wd_drv*. *drv_name* 
+field should match *Accel name* in devfs or sysfs without dash and id. And 
+all the instances are exposed to libwd and are stored in the list named 
+*wd_drv_list*. The type of entry in *wd_drv_list* is *struct wd_drv*.
+
+```
+    struct wd_drv wd_drv_list[] = {
+        &Accel_A,
+        &Accel_B,
+        ...
+    };
+```
+
+When algorithm libraries want to make hardware accelerator working, they send 
+requests to libwd first. Libwd matches the algorithm type name, and gets a 
+matched device list.
+
+```
+    struct wd_dev_list {
+        char                dev_name[MAX_DEV_NAME_LEN];
+        char                node_path[];
+        char                algo_name[];
+        int                 avail_chans;
+        int                 mask;
+        int                 id;     // ID in UACCE subsystem
+        struct wd_dev_list  *list;
+    };
+```
+
+***static struct wd_dev_list \*query_dev_list(char \*alg_name)***
+
+So *query_dev_list()* is an internal function of libwd that returns the matched 
+device list. And the list should be stored in the *context* of algorithm 
+library. *context* will be illustrated in other section.
+
+Channel is the common hardware resource of each hardware accelerator. Channels 
+are managed by channel manager. When there're multiple channel managers in the 
+system, different hardware accelerators may bind to different channel managers. 
+*avail_chans* could denote how much channels could be accessed by the 
+accelerator. When multiple accelerators share the same channel manager, 
+*avail_chans* is same for these accelerators. The device list is a priority 
+list that is sorted by the number of *avail_chans* in descending order.
+
+When a device is selected by algorithm library, the related driver could be 
+matched from *wd_drv_list* in libwd. Both of the device and the driver will 
+be recorded in the *context* of algorithm library. It'll be illustrated in 
+other sections.
+
+From now on, channel could be allocated from libwd. When the *context* is 
+created, vendor driver is also involved to request channel.
+
+
+## Libaffinity
+
+### Libaffinity APIs
+
+Although algorithm library could get the matched device list by 
+*query_dev_list()*, user application may still want to bind a specific device. 
+Because the user application may understand the system well. There should be 
+an optimization interface to choose right device with higher priority.
+
+```
+    typedef wd_dev_mask_t   unsigned long long int;
+    wd_dev_mask_t           dev_mask;
+```
+
+When hardware accelerator is registered into UACCE, each of them gets an ID 
+starting from 0. So a new type named wd_dev_mask_t is defined to account all 
+accelerators in UACCE subsystem. All set bits mean preferred devices. All clear 
+bits mean disabled devices.
+
+***int wd_get_affinity(int pid, wd_dev_mask_t \*dev_mask);***
+
+Parameter *dev_mask* is the output parameter of *wd_get_affinity()*. This 
+function returns all available devices for specific algorithm.
+
+***int wd_set_affinity(int pid, wd_dev_mask_t \*dev_mask);***
+
+Parameter *dev_mask* is the input parameter of *wd_set_affinity()*. This 
+function sets all preferred devices for specific algorithm.
+
+If libaffinity is used by user application, only device is in both matched 
+list and affinity mask could be selected. The first device with affinity in 
+matched list is valid. If libaffinity isn't used by user application, the first 
+device in matched device list is valid. Affinity is also stored in *context* 
+that will be illustrated in Section *context*. Parameter *pid* isn't used. It's 
+reserved for future that is illustred in Section *Extension on libaffinity*.
+
+Libaffinity is focus on selecting right devices. It could add more policies 
+to adjust affinity on hardware accelerators. User application calls libaffinity 
+directly.
+
+
+### Extension on libaffinity
+
+Because of *wd_get_affinity()* and *wd_set_affinity()*, user application could 
+choose the right device with optimization. The logic of optimization is out of 
+the scope of libwd and algorithm libraries. That's the reason to create 
+libaffinity.
+
+User application is expected to build once and run all over the place. But 
+*wd_get_affinity()* and *wd_set_affinity()* are all API that are fixed used 
+in user application. Here's the proposal on archieving the goal.
+
+UACCE should generate a *uacce_affinity* node for each process in procfs. This 
+node could implement the same function as *wd_get_affinity()* and 
+*wd_set_affinity()*. WarpDrive should provide a tool, **wdset**. 
+
+```
+    // list affinity value of specified process
+    $wdset -p [process ID]
+    // set affinity value into specified process
+    $wdset -b [UACCE ID list separated by coma] [application]
+```
+
+**wdset** is used to launch user application with affinity value. After 
+affinity value set, the user application is really started.
+
+This tool would make user application optimized by administrator easily. 
+Then application developer needn't care about affinity any more.
+
+
+## Algorithm Libraries
+
+WarpDrive is a framework that supports multiple algorithm interfaces. We'll 
 discuss compression algorithm interface in below. And crypto algorithm 
 interface will be added later.
 
 
 ### Compression Algorithm Interface
 
-Warpdrive compression algorithm interface is between user application and 
+WarpDrive compression algorithm interface is between user application and 
 vendor driver.
 
 
 #### Context
 
 The hardware accelerator is shared in the system. When compression is ongoing, 
-warpdrive needs to track the current task. So a context is necessary to record 
+WarpDrive needs to track the current task. So a context is necessary to record 
 key informations. User application needs to request a context before 
 compression or decompression.
 
 ```
-    struct wd_alg_comp {
-        char *name;
+    struct wd_algo_comp {
+        char *algo_name;
+        char *drv_name;
         int (*init)(...);
         void (*exit)(...);
         int (*deflate)(...);
         int (*inflate)(...);
     };
 
-    struct wd_comp_ctx {
-        int                 alg_type;    /* zlib or gzip */
+    struct algo_comp_ctx {
+        char                *algo_name;    /* zlib or gzip */
+        char                node_path[];
+        struct wd_drv       *drv;
+        struct wd_dev_list  *dev_list;
+        wd_dev_mask_t       affinity;
+        
         int                 running_num; /* number of async running task */
         
-        struct wd_alg_comp  *hw;
+        struct wd_algo_comp *hw;
         void                *priv;       /* vendor specific structure */
     };
+```
 
+***struct algo_comp_ctx \*wd_algo_comp_alloc_ctx(char \*algo_name, 
+wd_dev_mask_t affinity)***
+
+User application calls *wd_algo_comp_alloc_ctx()* to create context. In the 
+meantime, related device and driver is choosed and stored in the context. 
+Parameter *affinity_name_list* is optional, and it saved in *affinity* field.
+
+When a device is chosen, the device node path is updated in 
+*struct algo_comp_ctx*. And the node path is used by *wd_request_chan()*.
+
+Hooks are provided in "struct wd_algo_comp". When a vendor driver is choosed, 
+*hw* hooks should be filled at the same time.
+
+*priv* field of *struct wd_comp_ctx* stores some hardware informations. And 
+channels represented by *struct wd_chan* are also stored in *priv* field.
+
+
+***void wd_algo_comp_free_ctx(struct wd_comp_ctx \*ctx)*** releases a context.
+
+
+#### Compression & Decompression
+
+
+```
     struct wd_comp_arg {
         void         *src;
         size_t       src_len;
@@ -190,48 +380,37 @@ compression or decompression.
     };
 ```
 
-"src" and "dst" fields of "struct wd_comp_arg" are virtual address. Although 
-DMA address is used in NOSVA scenario, user application doesn't need the DMA 
-address. So they're are stored in "priv" structure by vendor driver.
-
-
-***struct wd_comp_ctx \*wd_alg_comp_alloc_ctx(int alg_type)*** requests a 
-context.
-
-***void wd_alg_comp_free_ctx(struct wd_comp_ctx \*ctx)*** releases a context.
-
-
-#### Compression & Decompression
-
-Warpdrive compression algorithm provides the hook interface of hardware 
-implementation. It's "hw" field in "struct wd_comp_ctx".
-
-"struct wd_comp_arg" stores the information about source and destination 
+*struct wd_comp_arg* stores the information about source and destination 
 buffers. This structure is the input parameter of compression and decompression.
 
 If user application needs the synchronous compression or decompression, 
 functions are used in below.
 
-***wd_alg_compress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg, 
-void \*tag)***  
-***wd_alg_decompress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg, 
-void \*tag)*** 
+***wd_algo_compress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg, 
+void \*(\*callback)(struct wd_comp_arg \*arg))***
 
-When the above two functions are invoked, user application is blocked until
-the hardware operation is done.
+***wd_algo_decompress(struct wd_comp_ctx \*ctx, struct wd_comp_arg \*arg, 
+void \*(\*callback)(struct wd_comp_arg \*arg))***
+
+*callback* is the callback function of user application. And it's optional.
+When it's synchronous operation, it should be always NULL.
+
+When it's asynchronous operation, *callback* function of user application is 
+called. When the above two functions are invoked, user application is blocked 
+until the hardware operation is done.
 
 If user application wants to handle more tasks in parallel, asynchronous 
 operations are used in below.
 
-***wd_alg_comp_poll(struct wd_comp_ctx \*ctx)***  
+***wd_algo_comp_poll(struct wd_comp_ctx \*ctx)***
 
 In asnychronous mode, user application sends multiple compression requests 
-to hardware accelerators by one channel. Although data are pipelined to 
-hardware accelerator, vendor driver doesn't need to poll the status of 
-hardware accelerator. It could save time that cost of polling status on each 
-request.
+to hardware accelerators by one channel. Data are pipelined to hardware 
+accelerator, application only needs to poll the status of hardware accelerator 
+after all requests sent. It saves the time of polling status between two 
+requests. It only needs to poll status after all requests sent.
 
-Because *wd_alg_comp_poll()* is a polling function. Suggest user application 
+Because *wd_algo_comp_poll()* is a polling function. Suggest user application 
 invokes the polling for multiple times. Otherwise, it may miss the event of
 hardware accelerator completion.
 
@@ -239,14 +418,16 @@ hardware accelerator completion.
 #### Register Compression Algorithm
 
 When user application executes compression or decompression, the hardware 
-implementation that defined in "hw" field of the context is invoked. This
-"hw" field is registered by vendor driver.
+implementation that defined in "hw" field of the context is invoked.
 
-Warpdrive compression algorithm layer maintains a list of "struct wd_alg_comp". 
-When the request of compression or decompression arrives, it compares the 
-device name with vendor driver. If they match, related hardware implementation 
-is linked to "hw" field of "struct wd_comp_ctx". By this way, vendor driver 
-binds to compression algorithm layer with context.
+Compression algorithm library maintains a list of *struct wd_algo_comp*. 
+
+When user application creates context by *wd_algo_comp_alloc_context()*, 
+these operations will be done. Both the device and the driver are chosen 
+and updated into context. At the same time, algorithm library searches the 
+list of *struct wd_algo_comp* with *drv_name*. When it's done, implementation 
+of *struct wd_algo_comp* is assigned to *hw* hooks in context. Everything 
+is integrated into context now.
 
 
 ## Example
@@ -265,34 +446,31 @@ could make use of asynchronous mechanism to save time on polling.
 
 ![comp_async](./wd_comp_async.png)
 
-By the way, there's also a limitation on asynchronous operation. Let's assume 
-there're two frames, A frame and B frame. If the output of hardware accelerator 
-is fixed-length, then we can calculate the output address of A and B frame. If 
-the length of hardware accelerator output isn't fixed, we have to set the 
-temperary address as the output of B frame. Then a memory copy operation is 
-required. So we use compression as a demo to explain asynchronous operation. 
-It doesn't mean that we recommend to use asynchronous compression.
+There's also a limitation on asynchronous operation in SVA scenario. Let's 
+assume there're two output frames generated by accelerator, A frame and B 
+frame. If the output is in fixed-length, then we can calculate the address of 
+A and B frame in the output buffer of application. If the length of hardware 
+accelerator output isn't fixed, we have to setup the temperary buffer to store 
+A and B frame. Then a memory copy operation is required between temperary 
+buffer and application buffer. So we use compression as a demo to explain 
+asynchronous operation. It doesn't mean that we recommend to use asynchronous 
+compression.
 
 
 ### Example in vendor driver
 
-Here's an example of implementing vendor driver to support compression.
+Here's an example of implementing vendor driver to support compression 
+algorithm.
 
-At first, vendor driver needs to implement the instance of 
-"struct wd_alg_comp". The name field of "struct wd_alg_comp" should be "zlib" 
-or any compression algorithm name. Then add the instance into the algorithm 
-list in Warpdrive helper layer.
+Vendor driver needs to implement the instance of *struct wd_algo_comp* and 
+*struct wd_drv*. When user application creates the context, the vendor driver 
+and device are both bound into context. Then *wd_algo_comp_alloc_ctx()* 
+continues to call *ctx->init()* that defined in vendor driver. In this 
+function tries to request channel and initialize hardware.
 
-When user application invokes "wd_alg_comp_alloc_ctx()", Warpdrive needs to 
-find a valid device with the algorithm type, "zlib". Then Warpdrive finds a 
-proper vendor driver that supports the device. At this time, those compression 
-hooks are bound to hooks in the context, "struct wd_comp_ctx". Then 
-"wd_comp_ctx->init()" is called. In this function, vendor driver tries to 
-request channel and initialize hardware.
+When user application invokes *wd_algo_compress()*, *ctx->deflate()* is called. 
+It points to the implementation in vendor driver.
 
-When user application invokes "wd_alg_compress()", "wd_comp_ctx->deflate()" is 
-called. It points to the implementation in vendor driver.
-
-When user application invokes "wd_alg_comp_free_ctx()", "wd_comp_ctx->exit()" 
+When user application invokes *wd_algo_comp_free_ctx()*, "wd_comp_ctx->exit()" 
 is called. It also points to the implementation in vendor driver. It releases 
 channel and free hardware.
