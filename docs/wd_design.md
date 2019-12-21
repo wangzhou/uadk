@@ -20,6 +20,8 @@
 |         |                |   to this notion. |
 |         |                |2) Illustrate how to select hardware accelerator. |
 |         |                |3) Illustrate how libaffinity working. |
+|  0.95   |                |1) Remove libaffinity extension for unclear logic. |
+|         |                |2) Add API to identify NOSVA in libwd. |
 
 
 ## Overview
@@ -147,6 +149,11 @@ patch set <https://lkml.org/lkml/2019/11/22/1728>.
 
 ### Extra Helper functions in NOSVA
 
+***int wd_is_nosva(struct wd_chan \*chan);***
+
+Vendor driver needs to identify whether the current device is working in SVA 
+scenario or NOSVA scenario.
+
 Hardware always requires continuous address. Since physical address is 
 allocated in kernel. Vendor driver needs libwd to provide an API to allocate 
 memory in kernel space.
@@ -273,35 +280,6 @@ reserved for future that is illustred in Section *Extension on libaffinity*.
 Libaffinity is focus on selecting right devices. It could add more policies 
 to adjust affinity on hardware accelerators. User application calls libaffinity 
 directly.
-
-
-### Extension on libaffinity
-
-Because of *wd_get_affinity()* and *wd_set_affinity()*, user application could 
-choose the right device with optimization. The logic of optimization is out of 
-the scope of libwd and algorithm libraries. That's the reason to create 
-libaffinity.
-
-User application is expected to build once and run all over the place. But 
-*wd_get_affinity()* and *wd_set_affinity()* are all API that are fixed used 
-in user application. Here's the proposal on archieving the goal.
-
-UACCE should generate a *uacce_affinity* node for each process in procfs. This 
-node could implement the same function as *wd_get_affinity()* and 
-*wd_set_affinity()*. WarpDrive should provide a tool, **wdset**. 
-
-```
-    // list affinity value of specified process
-    $wdset -p [process ID]
-    // set affinity value into specified process
-    $wdset -b [UACCE ID list separated by coma] [application]
-```
-
-**wdset** is used to launch user application with affinity value. After 
-affinity value set, the user application is really started.
-
-This tool would make user application optimized by administrator easily. 
-Then application developer needn't care about affinity any more.
 
 
 ## Algorithm Libraries
