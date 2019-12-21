@@ -8,14 +8,15 @@
  *
  * Return 0 on success, or an error.
  */
-int hizip_check_output(void *buf, unsigned int size,
-		       check_output_fn compare_output, void *opaque)
+int hizip_check_output(struct wd_msg *msg)
 {
 	int ret, ret2;
 	unsigned char *out_buffer;
 	size_t out_buf_size = 0x10000;
+	void *data_out = msg->data_out;
+	unsigned int size = ((struct hisi_zip_sqe *)msg->msg)->produced;
 	z_stream stream = {
-		.next_in	= buf,
+		.next_in	= data_out,
 		.avail_in	= size,
 	};
 
@@ -44,9 +45,8 @@ int hizip_check_output(void *buf, unsigned int size,
 				break;
 			}
 
-			ret2 = compare_output(out_buffer, out_buf_size -
-					      stream.avail_out, opaque);
-
+			ret2 = memcmp(out_buffer, msg->data_in, out_buf_size -
+				      stream.avail_out);
 			/* compare_output should print diagnostic messages. */
 			if (ret2) {
 				ret = Z_STREAM_END;
