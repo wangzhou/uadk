@@ -94,39 +94,17 @@ static void dbg_sqe(const char *head, struct hisi_zip_sqe *m)
 
 static int hizip_wd_sched_input(struct wd_msg *msg, void *priv)
 {
-	size_t i, j, ilen;
+	size_t ilen;
 	char *in_buf, *out_buf;
 	struct hisi_zip_sqe *m = msg->msg;
 	struct hizip_priv *hizip_priv = priv;
 	struct test_options *opts = hizip_priv->opts;
-
-	__u32 seed = 0;
-	/*
-	 * TODO: change state for each buffer, to make sure there is no TLB
-	 * aliasing. Can we store the seed into priv_info?
-	 */
-	//__u32 seed = hizip_priv->state++;
-	unsigned short rand_state[3] = {(seed >> 16) & 0xffff, seed & 0xffff, 0x330e};
 
 	ilen = hizip_priv->total_len > opts->block_size ?
 		opts->block_size : hizip_priv->total_len;
 
 	in_buf = hizip_priv->in_buf;
 	out_buf = hizip_priv->out_buf;
-
-	/*
-	 * Prepare the input buffer with a reproducible sequence of numbers.
-	 * nrand48() returns a pseudo-random number in the interval [0; 2^31).
-	 * It's not really possible to compress a pseudo-random stream using
-	 * deflate, since it can't find any string repetition. As a result the
-	 * output size is bigger, with a ratio of 1.041.
-	 */
-	for (i = 0; i < ilen; i += 4) {
-		__u64 n = nrand48(rand_state);
-
-		for (j = 0; j < 4 && i + j < ilen; j++)
-			in_buf[i + j] = (n >> (8 * j)) & 0xff;
-	}
 
 	if (!(hizip_priv->flags & UACCE_DEV_SVA)) {
 		memcpy(msg->data_in, in_buf, ilen);
@@ -232,6 +210,48 @@ static struct test_ops test_ops = {
 	.output = hizip_wd_sched_output,
 };
 
+static void hizip_prepare_input_data(struct hizip_priv *hizip_priv)
+{
+	__u32 block_size, remain_size, size;
+	__u32 seed = 0;
+	char *in_buf;
+	size_t i, j;
+
+	/*
+	 * TODO: change state for each buffer, to make sure there is no TLB
+	 * aliasing. Can we store the seed into priv_info?
+	 */
+	//__u32 seed = hizip_priv->state++;
+	unsigned short rand_state[3] = {(seed >> 16) & 0xffff, seed & 0xffff, 0x330e};
+	block_size = hizip_priv->opts->block_size;
+	remain_size = hizip_priv->total_len;
+	in_buf = hizip_priv->in_buf;
+
+	while (remain_size > 0) {
+		if (remain_size > block_size)
+			size = block_size;
+		else
+			size = remain_size;
+		/*
+		 * Prepare the input buffer with a reproducible sequence of
+		 * numbers. nrand48() returns a pseudo-random number in the
+		 * interval [0; 2^31). It's not really possible to compress a
+		 * pseudo-random stream using deflate, since it can't find any
+		 * string repetition. As a result the output size is bigger,
+		 * with a ratio of 1.041.
+		 */
+		for (i = 0; i < size; i += 4) {
+			__u64 n = nrand48(rand_state);
+
+			for (j = 0; j < 4 && i + j < size; j++)
+				in_buf[i + j] = (n >> (8 * j)) & 0xff;
+		}
+
+		in_buf += block_size;
+		remain_size -= size;
+	}
+}
+
 static int run_test(struct test_options *opts)
 {
 	int ret = 0;
@@ -257,6 +277,8 @@ static int run_test(struct test_options *opts)
 		ret = -ENOMEM;
 		goto out_with_in_buf;
 	}
+
+	hizip_prepare_input_data(&hizip_priv);
 
 	ret = hizip_test_init(&sched, opts, &test_ops, &hizip_priv);
 	if (ret) {
