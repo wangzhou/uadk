@@ -22,6 +22,7 @@
 |         |                |3) Illustrate how libaffinity working. |
 |  0.95   |                |1) Remove libaffinity extension for unclear logic. |
 |         |                |2) Add API to identify NOSVA in libwd. |
+|  0.96   |                |1) Fix on asynchronous operation. |
 
 
 ## Overview
@@ -114,6 +115,7 @@ be accessed by vendor driver. In libwd, channel is defined as *struct wd_chan*.
     struct wd_chan {
         int  fd;
         char node_path[];
+        void *ctx;    // point to context in algorithm library
         void *priv;   // point to vendor specific structure
     };
 ```
@@ -322,16 +324,26 @@ compression or decompression.
         int                 running_num; /* number of async running task */
         
         struct wd_algo_comp *hw;
+        algo_comp_cb_t      *cb;
         void                *priv;       /* vendor specific structure */
     };
+
+    struct algo_comp_tag {
+        int                 tag_id;
+    };
+    
+    typedef void *algo_comp_cb_t(struct algo_comp_tag *tag);
 ```
 
 ***struct algo_comp_ctx \*wd_algo_comp_alloc_ctx(char \*algo_name, 
-wd_dev_mask_t affinity)***
+algo_comp_cb_t \*cb, wd_dev_mask_t affinity)***
 
 User application calls *wd_algo_comp_alloc_ctx()* to create context. In the 
 meantime, related device and driver is choosed and stored in the context. 
-Parameter *affinity_name_list* is optional, and it saved in *affinity* field.
+Parameter *cb* is optional, and it saved in *cb* field. This parameter means 
+the callback of asychronous operation. If appliction only needs synchronous 
+operation, parameter *cb* could be **NULL**. Parameter *affinity_name_list* 
+is optional, and it saved in *affinity* field.
 
 When a device is chosen, the device node path is updated in 
 *struct algo_comp_ctx*. And the node path is used by *wd_request_chan()*.
@@ -339,8 +351,26 @@ When a device is chosen, the device node path is updated in
 Hooks are provided in "struct wd_algo_comp". When a vendor driver is choosed, 
 *hw* hooks should be filled at the same time.
 
-*priv* field of *struct wd_comp_ctx* stores some hardware informations. And 
-channels represented by *struct wd_chan* are also stored in *priv* field.
+When asychronous operation is running, *tag_id* in *struct algo_comp_tag* is 
+used to mark the sequence. Vendor driver could merge and copy all these pieces 
+into output buffer that provided by application.
+
+```
+    struct priv_vendor_ctx {
+        void            *buf_in;
+        void            *buf_out;
+        size_t          in_len;
+        size_t          out_len;
+        __u64           phys_buf_in;
+        __u64           phys_buf_out;
+        struct wd_chan  *chan;
+        ...
+    };
+```
+
+*struct priv_vendor_ctx* is an example of private structure attached in *priv*
+field of *struct wd_comp_ctx*. Vendor driver could define the structure by 
+itself.
 
 
 ***void wd_algo_comp_free_ctx(struct wd_comp_ctx \*ctx)*** releases a context.
