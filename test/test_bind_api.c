@@ -216,7 +216,8 @@ static struct test_ops test_ops = {
 
 static void hizip_prepare_input_data(struct hizip_priv *hizip_priv)
 {
-	__u32 block_size, remain_size, size;
+	unsigned long remain_size;
+	__u32 block_size, size;
 	__u32 seed = 0;
 	char *in_buf;
 	size_t i, j;
@@ -382,7 +383,7 @@ int main(int argc, char **argv)
 				show_help = 1;
 			break;
 		case 's':
-			opts.total_len = atoi(optarg);
+			opts.total_len = atol(optarg);
 			SYS_ERR_COND(opts.total_len <= 0, "invalid size '%s'\n", optarg);
 			break;
 		default:
