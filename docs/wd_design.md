@@ -23,6 +23,8 @@
 |  0.95   |                |1) Remove libaffinity extension for unclear logic. |
 |         |                |2) Add API to identify NOSVA in libwd. |
 |  0.96   |                |1) Fix on asynchronous operation. |
+|  0.97   |                |1) Fix the missing hook of async poll. |
+|         |                |2) Illustrate more on binding driver. |
 
 
 ## Overview
@@ -183,6 +185,10 @@ example, the file path of char dev is */dev/misc/[Accel]* and hardware
 informations are in */sys/class/uacce/[Accel]/*. The same name is shared in 
 both devfs and sysfs. The *Accel* is comprised of name, dash and id.
 
+Vendor driver is comprised by two components. One is related to channels, and 
+the other is related to algorithms. The component related to algorithm that is 
+mentioned in Section Context.
+
 ```
     struct wd_drv {
         char     drv_name[MAX_DEV_NAME_LEN];
@@ -206,7 +212,7 @@ all the instances are exposed to libwd and are stored in the list named
 
 When algorithm libraries want to make hardware accelerator working, they send 
 requests to libwd first. Libwd matches the algorithm type name, and gets a 
-matched device list.
+matched device list that is created based on current devices.
 
 ```
     struct wd_dev_list {
@@ -224,23 +230,26 @@ matched device list.
 
 So *query_dev_list()* is an internal function of libwd that returns the matched 
 device list. And the list should be stored in the *context* of algorithm 
-library. *context* will be illustrated in other section.
+library. *context* will be illustrated in Section Context.
 
 Channel is the common hardware resource of each hardware accelerator. Channels 
 are managed by channel manager. When there're multiple channel managers in the 
 system, different hardware accelerators may bind to different channel managers. 
 *avail_chans* could denote how much channels could be accessed by the 
 accelerator. When multiple accelerators share the same channel manager, 
-*avail_chans* is same for these accelerators. The device list is a priority 
-list that is sorted by the number of *avail_chans* in descending order.
+*avail_chans* is same for these accelerators. The value of *avail_chans* could 
+bet gotten from sysfs node.
+
+The device list is a priority list that is sorted by the number of 
+*avail_chans* in descending order.
 
 When a device is selected by algorithm library, the related driver could be 
 matched from *wd_drv_list* in libwd. Both of the device and the driver will 
 be recorded in the *context* of algorithm library. It'll be illustrated in 
-other sections.
+Section Context.
 
 From now on, channel could be allocated from libwd. When the *context* is 
-created, vendor driver is also involved to request channel.
+created, vendor driver is also involved to request channel by hooks.
 
 
 ## Libaffinity
@@ -302,16 +311,23 @@ vendor driver.
 The hardware accelerator is shared in the system. When compression is ongoing, 
 WarpDrive needs to track the current task. So a context is necessary to record 
 key informations. User application needs to request a context before 
-compression or decompression.
+compression or decompression. Application only needs the context as a 
+parameter and doesn't access any field of the context.
 
 ```
+    struct algo_comp_tag {
+        int                 tag_id;
+    };
+    typedef void *algo_comp_cb_t(struct algo_comp_tag *tag);
+
     struct wd_algo_comp {
         char *algo_name;
         char *drv_name;
-        int (*init)(...);
-        void (*exit)(...);
-        int (*deflate)(...);
-        int (*inflate)(...);
+        int (*init)(struct algo_comp_ctx *ctx, ...);
+        void (*exit)(struct algo_comp_ctx *ctx, ...);
+        int (*deflate)(struct algo_comp_ctx *ctx, ...);
+        int (*inflate)(struct algo_comp_ctx *ctx, ...);
+        int (*async_poll)(struct algo_comp_ctx *ctx, ...);
     };
 
     struct algo_comp_ctx {
@@ -327,33 +343,41 @@ compression or decompression.
         algo_comp_cb_t      *cb;
         void                *priv;       /* vendor specific structure */
     };
-
-    struct algo_comp_tag {
-        int                 tag_id;
-    };
-    
-    typedef void *algo_comp_cb_t(struct algo_comp_tag *tag);
 ```
 
 ***struct algo_comp_ctx \*wd_algo_comp_alloc_ctx(char \*algo_name, 
 algo_comp_cb_t \*cb, wd_dev_mask_t affinity)***
 
-User application calls *wd_algo_comp_alloc_ctx()* to create context. In the 
-meantime, related device and driver is choosed and stored in the context. 
-Parameter *cb* is optional, and it saved in *cb* field. This parameter means 
-the callback of asychronous operation. If appliction only needs synchronous 
-operation, parameter *cb* could be **NULL**. Parameter *affinity_name_list* 
-is optional, and it saved in *affinity* field.
+User application calls *wd_algo_comp_alloc_ctx()* to create context. The 
+algorithm library calls *query_dev_list()* to get the list with all related 
+devices. The device with highest priority is choosen and stored in *node_path* 
+field of context.
 
-When a device is chosen, the device node path is updated in 
-*struct algo_comp_ctx*. And the node path is used by *wd_request_chan()*.
+Two instances, *struct wd_drv* and *struct wd_algo_comp*, are used to match 
+related vendor driver. Since the same device name is shared to vendor driver. 
+When these two instances are found, both of them are stored in *drv* and *hw* 
+fields in context. From now on, device and vendor driver are bound in the 
+context, and algorithm library can call the *init()* that defined in vendor 
+driver.
 
-Hooks are provided in "struct wd_algo_comp". When a vendor driver is choosed, 
-*hw* hooks should be filled at the same time.
+*wd_algo_comp_alloc_ctx()* could allocate channels from vendor driver right 
+now. It calls *wd_request_chan()* immediately since *node_path* is ready.
+
+If user wants to create a context with asynchronous operation by 
+*wd_algo_comp_alloc_ctx()*, parameter *cb* is required. It'll bind to *cb* 
+field in the context. This parameter means the callback of user application 
+for asynchronous operation.
 
 When asychronous operation is running, *tag_id* in *struct algo_comp_tag* is 
 used to mark the sequence. Vendor driver could merge and copy all these pieces 
 into output buffer that provided by application.
+
+If user application wants to create a context with synchronous operation by 
+*wd_algo_comp_alloc_ctx()*, parameter *cb* should be **NULL**.
+
+If user application wants to suggest opening devices, it could make use of 
+*affinity_name_list* parameter. Each bit represents one hardware accelerator. 
+Bit 0 means the first device that is registered in UACCE subsystem.
 
 ```
     struct priv_vendor_ctx {
@@ -371,6 +395,10 @@ into output buffer that provided by application.
 *struct priv_vendor_ctx* is an example of private structure attached in *priv*
 field of *struct wd_comp_ctx*. Vendor driver could define the structure by 
 itself.
+
+The *init()* function of vendor driver initializes the hardware, and 
+*struct priv_vendor_ctx* is bound to *priv* field of *struct algo_comp_ctx* in 
+it.
 
 
 ***void wd_algo_comp_free_ctx(struct wd_comp_ctx \*ctx)*** releases a context.
@@ -417,6 +445,9 @@ to hardware accelerators by one channel. Data are pipelined to hardware
 accelerator, application only needs to poll the status of hardware accelerator 
 after all requests sent. It saves the time of polling status between two 
 requests. It only needs to poll status after all requests sent.
+
+Finally, *wd_algo_comp_poll()* calls *async_poll()* in vendor driver to poll 
+the hardware.
 
 Because *wd_algo_comp_poll()* is a polling function. Suggest user application 
 invokes the polling for multiple times. Otherwise, it may miss the event of
