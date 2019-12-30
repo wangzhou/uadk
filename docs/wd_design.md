@@ -29,6 +29,18 @@
 |         |                |   handler instead. |
 |         |                |2) Illustrate each parameter or field in table. |
 |         |                |3) Adjust the layout. |
+|  0.99   |                |1) Fix the parameters in wd_alg_compress() and |
+|         |                |   wd_alg_decompress(). |
+|  0.100  |                |1) Remove wd_get_domain_affinity() for no benefit. |
+|         |                |2) Remove dev_list from struct wd_alg_comp_ctx |
+|         |                |   since only one device is meaningful. |
+|         |                |3) Rename context to session. Rename channel to |
+|         |                |   context. |
+|         |                |4) Remove tag_id for not used. |
+|         |                |5) Fix in struct wd_comp_arg. |
+|         |                |6) Add compression interface for stream mode. |
+|         |                |7) Simplify the parameters in wd_drv_unmap_qfr(). |
+|         |                |8) Append a new image for asynchronous mode. |
 
 
 ## Terminology
@@ -37,9 +49,9 @@
 | :-- | :-- |
 | SVA             | Shared Virtual Addressing |
 | NUMA            | Non Uniform Memory Access |
-| Channel         | A dual directional hardware communication resource between |
+| Context         | A dual directional hardware communication resource between |
 |                 | CPU and hardware accelerator. |
-| Channel Manager | A device manages many channels. |
+| Context Manager | A device manages many contexts. |
 
 
 ## Overview
@@ -68,9 +80,9 @@ by IOMMU. And two scenarioes are supported, SVA scenario and NOSVA scenario.
 
 In SVA scenario, virtual address could be used by vendor driver directly. In 
 NOSVA scenario, only the address that could be recognized by driver is used 
-in vendor driver. So memory copy is required. And it'll bring up the potential 
-security issue since vendor driver is in user space. NOSVA scenario will be 
-removed in the future.
+in vendor driver. So memory copy is required in NOSVA scenario. And it'll 
+bring up the potential security issue since vendor driver is in user space. 
+NOSVA scenario will be removed in the future.
 
 In SVA scenario, memory address is always virtual address whatever it's in 
 user application or vendor driver. So sharing memory address is easily without 
@@ -98,10 +110,10 @@ example, the file path of char dev is */dev/misc/[Accel]* and hardware
 informations are in */sys/class/uacce/[Accel]/*. The same name is shared in 
 both devfs and sysfs. The *Accel* is comprised of name, dash and id.
 
-After opening this char device once, vendor driver will get a channel to access 
+After opening this char device once, vendor driver will get a context to access 
 the resource of this accelerator device. Vendor driver can configure above 
-channel by ioctl of this opened fd, and mmap hardware resource, like MMIO or 
-channel to user space.
+context by ioctl of this opened fd, and mmap hardware resource, like MMIO or 
+context to user space.
 
 ## Libaffinity
 
@@ -139,27 +151,6 @@ specified algorithm with *alg_name*. The set is contained in *dev_mask*. The
 return value is 0 if it succeeds to find the set of accelerators. The return 
 value is negative value if it fails to find the set.
 
-***int wd_get_domain_affinity(int id, wd_dev_mask_t \*dev_mask);***
-
-| Layer | Parameter | Direction | Comments |
-| :-- | :-- | :-- | :-- |
-| affinity | *id*       | Input  | Indicate the ID of accelerator in UACCE |
-|          |            |        | subsystem. |
-|          | *dev_mask* | Output | Indicate the mask bits of valid UACCE |
-|          |            |        | devices in the same IOMMU domain. |
-
-*wd_get_domain_affinity()* is different from *wd_get_affinity()*. It wants to 
-query the accelerators in the same IOMMU domain with specified accelerator.
-
-Mutliple hardware accelerators may share a same IOMMU domain. User application 
-may hope to share data among different accelerators. If they're are in the same 
-IOMMU domain, it may get better performance than different IOMMU domain.
-
-*wd_get_domain_affinity()* returns the set of matched accelerators that are in 
-the same IOMMU domain. The set is stored in *dev_mask*. The return value is 0 
-if the set is found. The return value is negative value if it fails to find the 
-set.
-
 ***int wd_get_numa_affinity(int id, wd_dev_mask_t \*dev_mask);***
 
 | Layer | Parameter | Direction | Comments |
@@ -169,31 +160,31 @@ set.
 |          | *dev_mask* | Output | Indicate the mask bits of valid UACCE |
 |          |            |        | devices in the same NUMA node range. |
 
-*wd_get_numa_affinity()* is similar to *wd_get_domain_affinity()*. The only 
-difference is to query the accelerators in the range of the same NUMA node.
+*wd_get_numa_affinity()* is different from *wd_get_affinity()*. It only wants 
+to find the accelerators in the range of the same NUMA node.
 
 In the same NUMA node, memory should be in the equal distance from different 
 devices. User application should gain better performance on it if data needs 
 to be shared among different accelerators.
 
-*wd_get_domain_affinity()* returns the set of matched accelerators that are in 
+*wd_get_numa_affinity()* returns the set of matched accelerators that are in 
 the range of the same NUMA node. The set is stored in *dev_mask*. The return 
 value is 0 if the set is found. The return value is negative value if it fails 
 to find the set.
 
-*wd_get_affinity()*, *wd_get_domain_affinity()* and *wd_get_numa_affinity()* 
-all query the set of matched accelerators. User application needs to limit 
-algorithm library to chose an accelerator in this set. All are based on the 
-*dev_mask* value. Libaffinity doesn't need to call any API in algorithm 
-library. User application gets the *dev_mask* value already, then it just needs 
-to notify algorithm library to chose an accelerator in the limited range.
+*wd_get_affinity()* and *wd_get_numa_affinity()* both query the set of matched 
+accelerators. User application needs to limit algorithm library to chose an 
+accelerator in this set. All are based on the *dev_mask* value. Libaffinity 
+doesn't need to call any API in algorithm library. User application gets the 
+*dev_mask* value already, then it just needs to notify algorithm library to 
+chose an accelerator in the limited range.
 
 The model of usage case is in below.
 
 User already knows which specified accelerators could bring better performance. 
 It just query these accelerators by *wd_get_affinity()* or the combination in 
-*wd_get_affinity()*, *wd_get_domain_affinity()* and *wd_get_numa_affinity()*. 
-The set is stored in *dev_mask*.
+*wd_get_affinity()* and *wd_get_numa_affinity()*. The set is stored in 
+*dev_mask*.
 
 Then user application requests algorithm library with *dev_mask* to choose a 
 right accelerator effiently.
@@ -210,7 +201,7 @@ interface will be added later.
 
 A vendor driver is the counterpart of a hardware accelerator. A vendor driver 
 is an implementation of an algorithm. Because of these, algorithm library 
-bind an accelerator and a vendor driver together. There're different driver 
+binds an accelerator and a vendor driver together. There're different driver 
 models in algorithm library for different accelerators.
 
 An example of binding compression device and compression driver is in below.
@@ -219,10 +210,8 @@ An example of binding compression device and compression driver is in below.
     struct wd_alg_comp {
         char *drv_name;
         char *alg_name;
-        int  (*alloc_chan)(struct wd_chan *chan);
-        void (*free_chan)(struct wd_chan *chan);
-        int  (*init)(struct alg_comp_ctx *ctx, ...);
-        void (*exit)(struct alg_comp_ctx *ctx, ...);
+        int  (*init)(struct alg_comp_sess *sess, ...);
+        void (*exit)(struct alg_comp_sess *sess, ...);
         ...
     };
 ```
@@ -236,8 +225,8 @@ without dash and ID.
 
 All the instances in vendor drivers must be exposed to libwd. So libwd 
 maintained several lists for different driver models, such as 
-*wd_comp_drv_list*, *wd_crypto_drv_list*, etc. Splitting drivers into different 
-lists is just for better performance on seeking driver.
+*wd_comp_drv_list*, *wd_crypto_drv_list*, etc. Categorizing drivers into 
+different lists is just for better performance on seeking driver.
 
 ```
     static struct wd_alg_comp wd_comp_drv_list[] = {
@@ -262,7 +251,7 @@ dynamic list in below.
         char                dev_name[MAX_DEV_NAME_LEN];
         char                node_path[];
         char                alg_name[];
-        int                 avail_chans;
+        int                 avail_ctxs;
         int                 id;     // ID in UACCE subsystem
         int                 mask;
         struct wd_dev_list  *list;
@@ -274,18 +263,18 @@ dynamic list in below.
 | *dev_name*    | Indicate the name of accelerator without UACCE ID. |
 | *node_path*   | Indicate the file path of the accelerator in devfs. |
 | *alg_name*    | Indicate which algorithm is supported by the accelerator. |
-| *avail_chans* | Indicate how many channels are available to the accelerator. |
+| *avail_ctxs*  | Indicate how many contexts are available to the accelerator. |
 | *id*          | Indicate the ID in UACCE subsystem. ID is also a bit index. |
 | *mask*        | Indicate the bit value that is converted from ID. |
 | *list*        | Indicate to the next matched accelerator. If there's no more |
 |               | accelerators, it's just NULL. |
 
-This device list is a list with a priority on *avail_chans*. *avail_chans* 
-indicates the channel resources. If there's more channels available, the 
-accelerator is in a high priority to be choosen. It's based on the policy of 
-resource balance.
+This device list is a list with a priority on *avail_ctxs*. *avail_ctxs* 
+indicates the the number of context resources. If there're more contexts 
+available to an accelerator, it is in a high priority to be choosen. It's 
+based on the policy of resource balance.
 
-*avail_chans* is also introduced in Section Launch Vendor Driver.
+*avail_ctxs* is also introduced in Section Launch Vendor Driver.
 
 ***static struct wd_dev_list \*query_dev_list(char \*alg_name)***
 
@@ -298,57 +287,54 @@ Return the device list if it succeds. Return NULL if it fails.
 So *query_dev_list()* is an internal function of algorithm library that returns 
 the matched device list.
 
-When both device and driver and founded by algorithm library, it needs to be 
-stored in somewhere. In algorithm library, these are stored in *context* that 
-will be introduced in Section Context.
+When both device and driver are founded by algorithm library, it needs to be 
+stored in somewhere. In algorithm library, these could be stored in *session* 
+that will be introduced in Section Session.
 
 
-### Context
+### Session
 
-Context is a space that collect accelerator and driver. With context, algorithm 
+Session is a space that collect accelerator and driver. With session, algorithm 
 library could track a task.
 
-Context is a internal structure that only be accessed by algorithm library and 
-vendor driver. User application needs the context to track the task, but it 
-can't access the informations in context directly. Algorithm library converts 
-the context to a handler and exposes handler to user application.
+Session is a internal structure that only be accessed by algorithm library and 
+vendor driver. User application needs the session to track the task, but it 
+can't access the informations in session directly. Algorithm library converts 
+the session to a handler and exposes handler to user application.
 
 ```
-    struct alg_comp_ctx {
+    struct alg_comp_sess {
         char                *alg_name;    /* zlib or gzip */
         char                node_path[];
         int                 id;
-        struct wd_dev_list  *dev_list;
         wd_dev_mask_t       affinity;
         struct wd_alg_comp  *drv;
-        alg_comp_cb_t       *cb;
         void                *priv;       /* vendor specific structure */
     };
 ```
 
-The fields in *struct alg_comp_ctx* are illustrated in Section Compression 
+The fields in *struct alg_comp_sess* are illustrated in Section Compression 
 Algorithm.
 
 
 ### Launch Vendor Driver
 
-With context, both accelerator and driver are stored in *node_path* and *drv* 
-fields. Although driver is found, algorithm library still controls the CPU.
-
+With session, accelerator and driver are stored in *node_path* and *drv* 
+fields. Although driver is found, algorithm library still occupies the CPU. 
 Algorithm library calls *drv->init()* to transfer the control of CPU to vendor 
 driver.
 
-In vendor driver, a hardware resource, channel, is important to request.
+In vendor driver, a hardware resource, context, is important to request.
 
-Channel is the common hardware resource of each hardware accelerator. Channels 
-are managed by channel manager. When there're multiple channel managers in the 
-system, different hardware accelerators may bind to different channel managers. 
-*avail_chans* could denote how much channels could be accessed by the 
-accelerator. When multiple accelerators share the same channel manager, 
-*avail_chans* is same for these accelerators. The value of *avail_chans* could 
+Context is the common hardware resource of each hardware accelerator. contexts 
+are managed by context manager. When there're multiple context managers in the 
+system, different hardware accelerators may bind to different context managers. 
+*avail_ctxs* could denote how much contexts could be accessed by the 
+accelerator. When multiple accelerators share the same context manager, 
+*avail_ctxs* is same to these accelerators. The value of *avail_ctxs* could 
 bet gotten from sysfs node.
 
-Since channel is a common resource, libwd encapuslates the interface to request 
+Since context is a common resource, libwd encapuslates the interface to request 
 it. It's introduced in Section Libwd Helper Functions.
 
 
@@ -359,7 +345,7 @@ Compression algorithm is between user application and vendor driver.
 ```
     typedef handle_t    unsigned long long int;
 ```
-***int wd_alg_comp_alloc_ctx(char \*alg_name, wd_dev_mask_t affinity, 
+***int wd_alg_comp_alloc_sess(char \*alg_name, wd_dev_mask_t affinity, 
 handler_t \*handler)***
 
 | Layer | Parameter | Direction | Comments |
@@ -369,19 +355,19 @@ handler_t \*handler)***
 |           | *affinity* | input  | Set the mask value of UACCE devices. |
 |           | *handler*  | output | A 64-bit handler value. |
 
-*wd_alg_comp_alloc_ctx()* is used to allocate a context that is denoted by 
+*wd_alg_comp_alloc_sess()* is used to allocate a session that is denoted by 
 a handle. Return 0 if succeeds. Return error number if fails.
 
-***void wd_alg_comp_free_ctx(handle_t handle)***
+***void wd_alg_comp_free_sess(handle_t handle)***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
 | algorithm | *handler* | input | A 64-bit handler value. |
 
-*wd_alg_comp_free_ctx()* is used to release a context that is denoted by a 
+*wd_alg_comp_free_sess()* is used to release a session that is denoted by a 
 handle.
 
-Both *wd_alg_comp_alloc_ctx()* and *wd_alg_comp_free_ctx()* are used by user 
+Both *wd_alg_comp_alloc_sess()* and *wd_alg_comp_free_sess()* are used by user 
 applications.
 
 
@@ -389,13 +375,11 @@ applications.
     struct wd_alg_comp {
         char *drv_name;
         char *algo_name;
-        int  (*alloc_chan)(struct wd_chan *chan);
-        void (*free_chan)(struct wd_chan *chan);
-        int  (*init)(struct wd_alg_comp_ctx *ctx, ...);
-        void (*exit)(struct wd_alg_comp_ctx *ctx, ...);
-        int  (*deflate)(struct wd_alg_comp_ctx *ctx, ...);
-        int  (*inflate)(struct wd_alg_comp_ctx *ctx, ...);
-        int  (*async_poll)(struct wd_alg_comp_ctx *ctx, ...);
+        int  (*init)(struct wd_alg_comp_sess *sess, ...);
+        void (*exit)(struct wd_alg_comp_sess *sess, ...);
+        int  (*deflate)(struct wd_alg_comp_sess *sess, ...);
+        int  (*inflate)(struct wd_alg_comp_sess *sess, ...);
+        int  (*async_poll)(struct wd_alg_comp_sess *sess, ...);
     };
 ```
 
@@ -403,10 +387,6 @@ applications.
 | :-- | :-- |
 | *alg_name*   | Algorithm name |
 | *drv_name*   | Driver name that is matched with device name. |
-| *alloc_chan* | Hook to allocate hardware channel that implemented in vendor |
-|              | driver. |
-| *free_chan*  | Hook to free hardware channel that implemented in vendor |
-|              | driver. |
 | *init*       | Hook to do hardware initialization that implemented in vendor |
 |              | driver. |
 | *exit*       | Hook to finish hardware operation that implemented in vendor |
@@ -423,11 +403,10 @@ should be referenced in a driver list of algorithm library.
 
 
 ```
-    struct wd_alg_comp_ctx {
+    struct wd_alg_comp_sess {
         char                *alg_name;    /* zlib or gzip */
         char                node_path[];
         int                 id;
-        struct wd_dev_list  *dev_list;
         wd_dev_mask_t       affinity;
         struct wd_alg_comp  *drv;
         void                *priv;       /* vendor specific structure */
@@ -439,31 +418,30 @@ should be referenced in a driver list of algorithm library.
 | *alg_name*  | Algorithm name. |
 | *node_path* | The node path of chosen hardware accelerator. |
 | *id*        | Indicate the ID of accelerator in UACCE subsystem. |
-| *dev_list*  | A dynamic device list is created by *query_dev_list()*. |
 | *affinity*  | Mask of preferred devices. |
 | *drv*       | Hook to vendor driver implementation. |
 
-User application calls *wd_alg_comp_alloc_ctx()* to create a context. In the 
+User application calls *wd_alg_comp_alloc_sess()* to create a session. In the 
 meantime, a device is chosen and a driver is matched. But of them are stored in 
-the context.
+the session.
 
-Then algorithm library can call the *drv->init()*. In the *drv->init()*, vendor 
-driver needs to request a channel by *wd_request_chan()*.
+Then algorithm library can call the *drv->init()*. In this function, vendor 
+driver needs to request a context by *wd_request_ctx()*.
 
-When user application requests for a context, it could apply hardware 
+When user application requests for a session, it could apply hardware 
 accelerator to work in synchronous mode or in asychronous mode. For synchronous 
 mode, parameter *cb* should be NULL. For asynchronous mode, parameter *cb* must 
 be provided.
 
 ```
-    struct priv_vendor_ctx {
+    struct priv_vendor_sess {
         void            *buf_in;
         void            *buf_out;
         size_t          in_len;
         size_t          out_len;
         __u64           phys_in;
         __u64           phys_out;
-        struct wd_chan  *chan;
+        struct wd_ctx  *ctx;
         ...
     };
 ```
@@ -477,32 +455,20 @@ be provided.
 | *phys_in*  | Indicate physical address of temporary IN buffer. |
 | *phys_out* | Indicate physical address of temporary OUT buffer. |
 
-*struct priv_vendor_ctx* is an example of private structure attached in *priv* 
-field of *struct wd_comp_ctx*. Vendor driver could define the structure by 
+*struct priv_vendor_sess* is an example of private structure attached in *priv* 
+field of *struct wd_comp_sess*. Vendor driver could define the structure by 
 itself. And it's also bound in *init()* implementation in vendor driver.
 
 
 #### Compression & Decompression
 
 ```
-    struct wd_alg_comp_tag {
-        int                 tag_id;
-    };
-    typedef void *wd_alg_comp_cb_t(struct alg_comp_tag *tag);
-```
-
-| Field | Comments |
-| :-- | :-- |
-| *tag_id* | Set by user application. It's used to mark the sequence of |
-|          | callback in asynchronous operation. |
-
-
-```
+    typedef void *wd_alg_comp_cb_t(void);
     struct wd_comp_arg {
         void              *src;
-        size_t            src_len;
+        size_t            *src_len;
         void              *dst;
-        size_t            dst_len;
+        size_t            *dst_len;
         wd_alg_comp_cb_t  *cb;
     };
 ```
@@ -529,23 +495,53 @@ functions in below.
 
 ***int wd_alg_compress(handler_t handler, struct wd_comp_arg \*arg)***
 
-| Parameter | Direction | Comments |
-| :-- | :-- | :-- |
-| *handler*  | Input | Indicate the context. User application doesn't know the |
-|            |       | details in context. |
-| *arg*      | Input | Indicate the source and destination buffer. |
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| algorithm | *handler*  | Input | Indicate the session. User application |
+|           |            |       | doesn't know the details in session. |
+|           | *arg*      | Input | Indicate the source and destination buffer. |
 
-Return 0 if it succeeds. Return error number if it fails.
+Return 0 if it succeeds. Return negative value if it fails.
 
 ***int wd_alg_decompress(handler_t handler, struct wd_comp_arg \*arg)***
 
-| Parameter | Direction | Comments |
-| :-- | :-- | :-- |
-| *handler*  | Input | Indicate the context. User application doesn't know the |
-|            |       | details in context. |
-| *arg*      | Input | Indicate the source and destination buffer. |
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| algorithm | *handler*  | Input | Indicate the session. User application |
+|           |            |       | doesn't know the details in session. |
+|           | *arg*      | Input | Indicate the source and destination buffer. |
 
-Return 0 if it succeeds. Return error number if it fails.
+Return 0 if it succeeds. Return negative value if it fails.
+
+***int wd_alg_strm_compress(handler_t handler, struct wd_comp_arg \*arg)***
+
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| algorithm | *handler* | Input | Indicate the session. User application |
+|           |           |       | doesn't know the details in session. |
+|           | *arg*     | Input | Indicate the source and destionation buffer. |
+
+Return 0 if it succeeds. Return negative value if it fails.
+
+
+***int wd_alg_strm_decompress(handler_t handler, struct wd_comp_arg \*arg)***
+
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| algorithm | *handler* | Input | Indicate the session. User application |
+|           |           |       | doesn't know the details in session. |
+|           | *arg*     | Input | Indicate the source and destionation buffer. |
+
+Return 0 if it succeeds. Return negative value if it fails.
+
+*wd_alg_strm_compress()* and *wd_alg_strm_decompress()* are different from 
+*wd_alg_compress()* and *wd_alg_decompress()*, although they're also used in 
+compression and decompression.
+
+*wd_alg_strm_compress()* and *wd_alg_strm_decompress()* are used in stream 
+mode. It means there's dependency between data blocks. When do the compression, 
+user must wait to compress the next data block if the previous one isn't 
+finished in hardware compression.
 
 
 ### Asynchronous Mode
@@ -565,8 +561,8 @@ sleep for a fixed time slot before polling status, it could save CPU resources.
 
 | Parameter | Direction | Comments |
 | :-- | :-- | :-- |
-| *handler* | Input | Indicate the context. User application doesn't know the |
-|           |       | details in context. |
+| *handler* | Input | Indicate the session. User application doesn't know the |
+|           |       | details in session. |
 
 Return 0 if hardware is done. Return error number if hardware is still working.
 
@@ -577,32 +573,28 @@ Because *wd_alg_comp_poll()* is a polling function. Suggest user application
 invokes the polling for multiple times. Otherwise, it may miss the event of
 hardware accelerator completion.
 
-*tag_id* in *struct algo_comp_tag* is used to mark the sequence for asychronous 
-mode. Then user application could merge all these data pieces into a complete 
-buffer.
-
 Vendor driver could merge and copy all these pieces into output buffer that 
 provided by application.
 
 
 ## Libwd Helper Functions
 
-Hardware accelerator communicates with CPU by MMIO and channels. Libwd helper 
+Hardware accelerator communicates with CPU by MMIO and contexts. Libwd helper 
 functions provide the interface that vendor driver could access memory from 
 WarpDrive.
 
 
-### Channel
+### Context
 
-Channel is a dual directional hardware communication resource between hardware 
+Context is a dual directional hardware communication resource between hardware 
 accelerator and CPU. When vendor driver wants to access resources of a
-accelerator, a channel is the requisite resource.
+accelerator, a context is the requisite resource.
 
 ```
-    struct wd_chan {
+    struct wd_ctx {
         int  fd;
         char node_path[];
-        void *ctx;    // point to context in algorithm library
+        void *sess;    // point to session in algorithm library
         void *priv;   // point to vendor specific structure
     };
 ```
@@ -611,49 +603,49 @@ accelerator, a channel is the requisite resource.
 | :-- | :-- |
 | *fd*        | Indicate the file descriptor of hardware accelerator. |
 | *node_path* | Indicate the file path of hardware accelerator. |
-| *ctx*       | Indicate the context that is created in algorithm library. |
+| *sess*       | Indicate the session that is created in algorithm library. |
 | *priv*      | Indicate the vendor specific structure. |
 
-Channel is a hardware resource. UACCE creates a char dev for each registered 
-hardware device. Once the char dev is opened by vendor driver, a channel is 
-allocated by UACCE. *fd* (file descriptor) represents the channel that could 
-be accessed by vendor driver. In libwd, channel is defined as *struct wd_chan*.
+Context is a hardware resource. UACCE creates a char dev for each registered 
+hardware device. Once the char dev is opened by vendor driver, a context is 
+allocated by UACCE. *fd* (file descriptor) represents the context that could 
+be accessed by vendor driver. In libwd, context is defined as *struct wd_ctx*.
 
 Vendor driver must know which hardware accelerator should be accessed. From 
 the view of vendor driver, the device is represented by device node path. 
-The device node path has already been saved in the context. So vendor driver 
-just fetches it from context, and requests a channel by the device node path.
+The device node path has already been saved in the session. So vendor driver 
+just fetches it from session, and requests a context by the device node path.
 
-Libwd defines APIs to allocate channels.
+Libwd defines APIs to allocate contexts.
 
-***struct wd_chan \*wd_request_channel(char *node_path);***
+***struct wd_ctx \*wd_request_ctx(char *node_path);***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
 | libwd | *node_path* | Input | Indicate the file path of hardware |
 |       |             |       | accelerator. |
 
-Return the handler of channel if it succeeds. Return NULL if it fails.
+Return the handler of context if it succeeds. Return NULL if it fails.
 
-***void wd_release_channel(struct wd_chan \*ch);***
+***void wd_release_ctx(struct wd_ctx \*ctx);***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
-| libwd | *ch* | Input | Indicate the handler of working channel. |
+| libwd | *ctx* | Input | Indicate the handler of working context. |
 
 
 ### mmap
 
-With a channel, resources on hardware accelerator could be shared to CPU. 
+With a context, resources on hardware accelerator could be shared to CPU. 
 Libwd provides API to create the mapping between virtual address and physical 
 address.
 
-***void *wd_drv_mmap_qfr(struct wd_chan \*ch, enum uacce_qfrt qfrt, 
+***void *wd_drv_mmap_qfr(struct wd_ctx \*ctx, enum uacce_qfrt qfrt, 
 size_t size);***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
-| libwd | *ch*   | Input | Indicate the handler of working channel. |
+| libwd | *ctx*  | Input | Indicate the handler of working context. |
 |       | *qfrt* | Input | Indicate the queue file region type. It could be  |
 |       |        |       | MMIO (device MMIO region), DUS (device user share |
 |       |        |       | region) or SS (static share memory region for |
@@ -664,19 +656,18 @@ Return virtual address if it succeeds. Return NULL if it fails.
 
 *wd_drv_mmap_qfr()* maps qfile region to user space.
 
-***void wd_drv_unmap_qfr(struct wd_chan \*ch, void \*addr, 
-enum uacce_qfrt qfrt, size_t size);*** destroys the qfile region by unmap().
+***void wd_drv_unmap_qfr(struct wd_ctx \*ctx, void \*addr, 
+enum uacce_qfrt qfrt);***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
-| libwd | *ch*   | Input | Indicate the handler of working channel. |
+| libwd | *ctx*  | Input | Indicate the handler of working context. |
 |       | *addr* | Input | Indicate the address that is mapped by |
 |       |        |       | *wd_drv_mmap_qfr()*. |
 |       | *qfrt* | Input | Indicate the queue file region type. It could be |
 |       |        |       | MMIO (device MMIO region), DUS (device user share |
 |       |        |       | region) or SS (static share memory region for |
 |       |        |       | user). |
-|       | *size* | Input | Indicate the size to be mapped. |
 
 *wd_drv_unmap_qfr()* unmaps qfile region from user space.
 
@@ -698,11 +689,11 @@ scenario or NOSVA scenario.
 In NOSVA scenario, vendor driver needs to allocate memory that could be 
 recognized by the accelerator.
 
-***void \*wd_reserve_mem(struct wd_chan \*ch, size_t size);***
+***void \*wd_reserve_mem(struct wd_ctx \*ctx, size_t size);***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
-| libwd | *ch*   | Input | Indicate the working channel. |
+| libwd | *ctx*  | Input | Indicate the working context. |
 |       | *size* | Input | Indicate the memory size that needs to be |
 |       |        |       | allocated. |
 
@@ -718,12 +709,12 @@ provide address that could be accessed by hardware accelerator. Libwd helps
 vendor driver to maintain the mapping between virtual address and the address 
 is recognized by accelerator, and returns the address.
 
-***void \*wd_get_dma_from_va(struct wd_chan \*ch, void \*va);***
+***void \*wd_get_dma_from_va(struct wd_ctx \*ctx, void \*va);***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
-| libwd | *ch* | Input | Indicate the working channel. |
-|       | *va* | Input | Indicate the virtual address. |
+| libwd | *ctx* | Input | Indicate the working context. |
+|       | *va*  | Input | Indicate the virtual address. |
 
 Return the address for accelerator if it succeeds. Return NULL if the input 
 virtual address is invalid.
@@ -745,6 +736,8 @@ could make use of asynchronous mechanism to save time on polling.
 
 ![comp_async](./wd_comp_async.png)
 
+![comp_async2](./wd_comp_async2.png)
+
 There's also a limitation on asynchronous operation in SVA scenario. Let's 
 assume there're two output frames generated by accelerator, A frame and B 
 frame. If the output is in fixed-length, then we can calculate the address of 
@@ -762,14 +755,14 @@ Here's an example of implementing vendor driver to support compression
 algorithm.
 
 Vendor driver needs to implement the instance of *struct wd_alg_comp* and 
-*struct wd_drv*. When user application creates the context, the vendor driver 
-and device are both bound into context. Then *wd_alg_comp_alloc_ctx()* 
-continues to call *ctx->init()* that defined in vendor driver. In this 
-function tries to request channel and initialize hardware.
+*struct wd_drv*. When user application creates the session, the vendor driver 
+and device are both bound into session. Then *wd_alg_comp_alloc_sess()* 
+continues to call *sess->init()* that defined in vendor driver. In this 
+function tries to request context and initialize hardware.
 
-When user application invokes *wd_alg_compress()*, *ctx->deflate()* is called. 
+When user application invokes *wd_alg_compress()*, *sess->deflate()* is called. 
 It points to the implementation in vendor driver.
 
-When user application invokes *wd_alg_comp_free_ctx()*, "wd_comp_ctx->exit()" 
+When user application invokes *wd_alg_comp_free_sess()*, "wd_comp_sess->exit()" 
 is called. It also points to the implementation in vendor driver. It releases 
-channel and free hardware.
+context and free hardware.
