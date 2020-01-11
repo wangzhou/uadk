@@ -47,6 +47,8 @@
 |         |                |2) Change affinity to accel. |
 |         |                |3) Adjust the layout. |
 |         |                |4) Drop the concept of session. |
+|  0.102  |                |1) Make libwd used by vendor driver only. |
+|         |                |2) Add session back for algorithm libraries. |
 
 
 ## Terminology
@@ -119,39 +121,51 @@ context to user space.
 
 Hardware accelerator communicates with CPU by MMIO and contexts. Libwd helper 
 functions provide the interface that vendor driver could access memory from 
-WarpDrive.
+WarpDrive. And libwd is only accessed by vendor driver.
+
+
+### Context
 
 Context is a dual directional hardware communication resource between hardware 
-accelerator and CPU. When vendor driver wants to access resources of a
+accelerator and CPU. When a vendor driver wants to access resources of an 
 accelerator, a context is the requisite resource.
+
+UACCE creates a char dev for each registered hardware device. Once the char dev 
+is opened by WarpDrive, a *fd* (file descriptor) is created that represents the 
+descriptor of *context*. The *fd* is operated by the vendor driver. More 
+informations could be associated with *context*, and all of them are defined in 
+*struct wd_ctx*.
+
+```
+    struct wd_ctx {
+        int            fd;
+        char           node_path[];
+        void           *priv;   // point to vendor specific structure
+    };
+```
+
+| Field | Comments |
+| :-- | :-- |
+| *fd*        | Indicate the file descriptor of hardware accelerator. |
+| *node_path* | Indicate the file path of hardware accelerator. |
+| *priv*      | Indicate the vendor specific structure. |
 
 Libwd defines APIs to allocate contexts.
 
-***handler_t wd_request_ctx(char *node_path);***
+***struct wd_ctx \*wd_request_ctx(char \*node_path);***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
 | libwd | *node_path* | Input | Indicate the file path of hardware |
 |       |             |       | accelerator. |
 
-Return the handler of context if it succeeds. Return 0 if it fails.
+Return the context if it succeeds. Return 0 if it fails.
 
-***void wd_release_ctx(handler_t handler);***
+***void wd_release_ctx(struct wd_ctx \*ctx);***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
-| libwd | *handler* | Input | Indicate the handler of working context. |
-
-
-```
-typedef unsigned long long int    handler_t;
-```
-
-A lot of informations, even hardware informations, are stored in *context*, 
-*struct wd_ctx*. Since *wd_request_ctx()* and *wd_release_ctx()* could be 
-invoked by user application, it's not good to expose the *context* structure 
-to user application. Instead, *context* should be transfered to a handler in 
-libwd. So only libwd and vendor driver could access the *context*.
+| libwd | *ctx* | Input | Indicate the working context. |
 
 
 ### mmap
@@ -165,7 +179,7 @@ size_t size);***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
-| libwd | *ctx*  | Input | Indicate the handler of working context. |
+| libwd | *ctx*  | Input | Indicate the working context. |
 |       | *qfrt* | Input | Indicate the queue file region type. It could be  |
 |       |        |       | MMIO (device MMIO region), DUS (device user share |
 |       |        |       | region) or SS (static share memory region for |
@@ -181,7 +195,7 @@ enum uacce_qfrt qfrt);***
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
-| libwd | *ctx*  | Input | Indicate the handler of working context. |
+| libwd | *ctx*  | Input | Indicate the working context. |
 |       | *addr* | Input | Indicate the address that is mapped by |
 |       |        |       | *wd_drv_mmap_qfr()*. |
 |       | *qfrt* | Input | Indicate the queue file region type. It could be |
@@ -197,178 +211,122 @@ patch set <https://lkml.org/lkml/2019/11/22/1728>.
 
 ## Vendor Driver
 
-### Context
+A vendor driver is the counterpart of a hardware accelerator. Without the 
+vendor driver, the accelerator can't work. *Context* could store the 
+informations from the both accelerator and vendor driver.
 
-Context is a dual directional hardware communication resource between hardware 
-accelerator and CPU. And *context* plays the key role in vendor driver.
+If an accelerator is a bit special and not be generalized, application could 
+access the vendor driver directly. The interface to application is defined 
+by vendor driver itself.
+
+Before accessing hardware accelerator, vendor driver needs to allocate 
+*context* first. In the *struct wd_ctx*, the node path of accelerator is also 
+recorded. If there're multiple accelerators share a same vendor driver, vendor 
+driver should decide to choose which accelerator by itself.
+
+Application may want to track *context*. It's not good to share *context* to 
+application directly. It's better to transfer *context* to handler for security.
+
+
+## Algorithm Libraries
+
+According to the above sections, an application could not access libwd 
+directly that is only accessed by vendor driver. When multiple vendor drivers 
+are doing similar things, a common interface could be abstracted into 
+algorithm libraries. All APIs in algorithm libraries are provided to user 
+application.
+
+
+### Compression Algorithm
+
+It's similar to libwd. Compression Algorithm provides a similar interface to 
+allocate a session. Session is a superset of context, since vendor driver may 
+apply multiple contexts. All contexts could be stored in a session. And session 
+takes more job, such as binding accelerator and vendor driver together.
+
+
+#### Session in Compression Algorithm
 
 ```
-    struct wd_ctx {
-        int            fd;
-        char           node_path[];
-        struct wd_drv  *drv;
-        void           *priv;   // point to vendor specific structure
+typedef unsigned long long int    handler_t;
+```
+
+***handler_t wd_alg_comp_alloc_sess(char \*alg_name, wd_dev_mask_t dev_mask)***
+
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| algorithm | *alg_name* | input  | Set the name of algorithm type, such as |
+|           |            |        | "zlib", "gzip", etc. |
+|           | *dev_mask* | input  | Set the mask value of UACCE devices. |
+
+*wd_alg_comp_alloc_sess()* is used to allocate a session. Return a valid 
+handler if succeeds. Return 0 if fails.
+
+***void wd_alg_comp_free_sess(handle_t handle)***
+
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| algorithm | *handler* | input | A 64-bit handler value. |
+
+*wd_alg_comp_free_sess()* is used to release a session that is denoted by a 
+handle.
+
+Both *wd_alg_comp_alloc_sess()* and *wd_alg_comp_free_sess()* are used by user 
+applications.
+
+
+#### Bind Accelerator and Driver
+
+Compression algorithm library requires each vendor driver providing an 
+instance, *struct wd_alg_comp*. This instance represents a vendor driver, 
+compression algorithm library binds an accelerator and a vendor driver into a 
+session. And *context* is stored in a *session*.
+
+```
+    struct wd_alg_comp {
+        char *drv_name;
+        char *algo_name;
+        int  (*init)(struct wd_sess *sess, ...);
+        void (*exit)(struct wd_sess *sess, ...);
+        int  (*deflate)(struct wd_sess *sess, ...);
+        int  (*inflate)(struct wd_sess *sess, ...);
+        int  (*async_poll)(struct wd_sess *sess, ...);
     };
 ```
 
 | Field | Comments |
 | :-- | :-- |
-| *fd*        | Indicate the file descriptor of hardware accelerator. |
-| *node_path* | Indicate the file path of hardware accelerator. |
-| *drv*       | Indicate the instance of vendor driver. |
-| *priv*      | Indicate the vendor specific structure. |
+| *alg_name*   | Algorithm name |
+| *drv_name*   | Driver name that is matched with device name. |
+| *init*       | Hook to do hardware initialization that implemented in vendor |
+|              | driver. |
+| *exit*       | Hook to finish hardware operation that implemented in vendor |
+|              | driver. |
+| *deflate*    | Hook to deflate by hardware that implemented in vendor |
+|              | driver. |
+| *inflate*    | Hook to inflate by hardware that implemented in vendor |
+|              | driver. |
+| *async_poll* | Hook to poll hardware status in asynchronous operation that |
+|              | implemented in vendor driver. |
 
-Context is a hardware resource. UACCE creates a char dev for each registered 
-hardware device. Once the char dev is opened by WarpDrive, a *fd* (file 
-descriptor) is created that represents the descriptor of *context*. The *fd* 
-is operated by the vendor driver. More informations could be associated with 
-*context*, and all of them are defined in *struct wd_ctx*. 
-
-
-### Register Vendor Driver
-
-A vendor driver is the counterpart of a hardware accelerator. Without the 
-vendor driver, the accelerator can't work. WarpDrive could bind the accelerator 
-and the vendor driver together and store both of them in the *context*.
-
-Each vendor driver should be implemented in this driver model.
+All the instances of *struct wd_alg_comp* from vendor drivers should be 
+referenced in an algorithm driver list of algorithm library.
 
 ```
-    struct wd_drv {
-        char *drv_name;
-        int  (*init)(struct wd_ctx *ctx);
-        void (*exit)(struct wd_ctx *ctx);
-    }
-```
-
-The *drv_name* in *struct wd_drv* is used to identify the vendor driver. 
-Different vendor driver uses different *drv_name*. And the *drv_name* should be 
-equal to the accelerator name.
-
-All the instances of vendor drivers must be exposed to libwd. Then libwd 
-maintaines the list of all vendor drivers, *wd_drv_list*.
-
-```
-    static struct wd_drv wd_drv_list[] = {
-        &Accel_A,
-        &Accel_B,
+    static struct wd_alg_comp wd_alg_comp_list[] = {
+        &Accel_driver_A,
+        &Accel_driver_B,
         ...
     };
 ```
 
-When an application requests a context, it specifies the node path of 
-accelerator as a parameter. It means that the accelerator is already chosen. 
-Then *wd_request_ctx()* need to match the name of accelerator in *wd_drv_list*. 
-When the counterpart of the accelerator is found from the *wd_drv_list*, the 
-instance of the vendor driver is bound into the *drv* field of *struct wd_ctx*.
+When an application calls *wd_alg_comp_alloc_sess()* to request a session, 
+*wd_alg_comp_alloc_sess()* starts to search an available accelerator first. 
+Parameter *alg_name* and *dev_mask* are used to search accelerators.
 
-From now on, the accelerator and the vendor driver are bound in the *context*. 
-Context plays the key role that connects both accelerator and vendor driver.
-
-In the second, *wd_request_ctx()* calls *wd_drv->init(ctx)* to initialize the 
-hardware. When application need to release the hardware, *wd_release_ctx()* 
-calls *wd_drv->exit(ctx)* to free the hardware. It finishes the job of 
-unregisteration of vendor driver.
-
-
-### Operate Hardware
-
-To make an application accessing resources of hardware accelerator, vendor 
-driver needs to provide the interface. Warpdrive doesn't define a common 
-interface since it's hardware related. Vendor driver could implement it by 
-itself, and expose it to user application.
-
-
-## Libaccel
-
-An application could request a context by *wd_request_ctx()*. The node path 
-of the accelerator is used as an input parameter of *wd_request_ctx()*. If 
-there're multiple hardware accelerators, application really hope WarpDrive 
-could choose a right accelerator. Libaccel could take this job.
-
-
-### Libaccel APIs
-
-Libaccel is used to set the range of hardware accelerators. Libaccel isn't 
-the requisite component in Warpdrive framework. It's only used when an 
-application knows the hardware in detail and wants to choose a few specific 
-accelerators to gain better performance.
-
-When each hardware accelerator registers in UACCE subsystem, it gets an ID that 
-is attached in the device name. User could get it from sysfs node.
-
-```
-    #define MAX_ACCELS               512
-    #define MAX_WORDS_FOR_ACCELS     (MAX_ACCELS / 32)
-    
-    struct wd_dev_mask {
-        unsigned int    mask[MAX_WORDS_FOR_ACCELS];
-    };
-    typedef struct wd_dev_mask    wd_dev_mask_t;
-```
-
-MAX_ACCELS is predefined in WarpDrive. Now MAX_ACCELS is 16 that means 512 
-accelerators are supported in the same time. If more accelerators need to be 
-supported, just change the value of MAX_ACCELS in WarpDrive.
-
-*wd_dev_mask_t* contains an array of masks. Each bit in the array is related to 
-one accelerator. It indicates that the accelerator is chosen or not. The lowest 
-bit indicates the hardware accelerator 0.
-
-***int wd_get_accel_mask(char \*alg_name, wd_dev_mask_t \*dev_mask);***
-
-| Layer | Parameter | Direction | Comments |
-| :-- | :-- | :-- | :-- |
-| libaccel | *alg_name* | Input  | Indicate the name of algorithm. |
-|          | *dev_mask* | Output | Indicate the mask bits of valid UACCE |
-|          |            |        | devices matched with the algorithm. |
-
-Return 0 if it finds accelerators matched with *alg_name*. Otherwise, it 
-returns negative value.
-
-***int wd_get_numa_accel_mask(int id, wd_dev_mask_t \*dev_mask);***
-
-| Layer | Parameter | Direction | Comments |
-| :-- | :-- | :-- | :-- |
-| libaccel | *id*       | Input  | Indicate the ID of accelerator in UACCE |
-|          |            |        | subsystem. |
-|          | *dev_mask* | Output | Indicate the mask bits of valid UACCE |
-|          |            |        | devices in the same NUMA node range. |
-
-
-*wd_get_numa_accel_mask()* only wants to find the accelerators in the range of 
-the same NUMA node. Return 0 if it succeeds. Return negative value if it fails.
-
-In the same NUMA node, memory should be in the equal distance from different 
-devices. User application should gain better performance on it if data needs 
-to be shared among different accelerators.
-
-*wd_get_numa_accel_mask()* returns the set of matched accelerators that are in 
-the range of the same NUMA node. The set is stored in *dev_mask*. The return 
-value is 0 if the set is found. The return value is negative value if it fails 
-to find the set.
-
-*wd_get_numa_accel_mask()* queries the set of matched accelerators. Then 
-application could choose an accelerator in this set. And the key is in the 
-*dev_mask* value.
-
-
-***int wd_choose_accel(char \*alg_name, wd_dev_mask_t \*dev_mask, 
-char \*\*node_path);***
-
-| Layer | Parameter | Direction | Comments |
-| :-- | :-- | :-- | :-- |
-| libaccel | *alg_name*  | Input  | Indicate the name of algorithm. |
-|          | *dev_mask*  | Input  | Indicate the mask bits of valid UACCE |
-|          |             |        | devices in the same NUMA node range. |
-|          | *node_path* | Output | Indicate the node path of the choosen |
-|          |             |        | accelerator. |
-
-The return value is 0 if it succeeds to find an accelerator. The return value 
-is negative if it fails to find an accelerator.
-
-*wd_choose_accel()* arranges the matched accelerators in a priority list. Only 
-accelerators in the set of *dev_mask* are collected in the priority list.
+*wd_alg_comp_alloc_sess()* scans sysfs node to find devices matching *alg_name* 
+and form a device list. Each accelerator has an UACCE ID. If an accelerator's 
+ID doesn't exist in the *dev_mask*, it'll be skipped to insert the device list.
 
 ```
     struct wd_dev_list {
@@ -394,119 +352,37 @@ accelerators in the set of *dev_mask* are collected in the priority list.
 The weight of the priority list is *avail_ctxs*. *avail_ctxs* indicates the 
 number of context resources. If there're more contexts available to an 
 accelerator, it is in a high priority to be choosen. It's based on the policy 
-of resource balance.
+of resource balance. Compression algorithm library always choose the first 
+accelerator in the device list.
 
-The model of usage case is in below.
-
-Case 1:
-
-An application calls *wd_choose_accel(alg_name, NULL, ...)* to get an 
-accelerator. The *dev_mask* parameter must be set as NULL. Then WarpDrive 
-selects an accelerator from *wd_dev_list* by priority.
-
-Case 2:
-
-An application needs to access resources on multiple accelerators, and 
-it hopes all accelerators in the same NUMA range. Application calls 
-*wd_get_accel_mask(alg_name, ...)* to finds available accelerators for one 
-algorithm.
-
-Then application picks up one accelerator from the set, and calls 
-*wd_get_numa_accel_mask()* to finds all accelerators in the same NUMA range.
-
-Again, *wd_get_accel_mask(alg_name, ...) is called for another algorithm. If 
-the related accelerators could be found in the set of the same NUMA range. The 
-accelerator is found. Otherwise, just do another search.
-
-When the accelerator is chosen, the node path is also known. With this, 
-application could create the context.
-
-
-## Algorithm Libraries
-
-According to the above sections, an application could operate hardware 
-accelerator with libwd. But it also means that the application waives the 
-portability. In order to support more accelerators and port applications 
-easily, WarpDrive supports algorithm interfaces. Then applications can't 
-access libwd and vendor driver any more.
-
-
-### Compression Algorithm
-
-It's similar to libwd. Compression Algorithm provides a similar interface to 
-allocate a context.
-
-***handler_t wd_alg_comp_alloc_ctx(char \*alg_name, wd_dev_mask_t dev_mask)***
-
-| Layer | Parameter | Direction | Comments |
-| :-- | :-- | :-- | :-- |
-| algorithm | *alg_name* | input  | Set the name of algorithm type, such as |
-|           |            |        | "zlib", "gzip", etc. |
-|           | *dev_mask* | input  | Set the mask value of UACCE devices. |
-
-*wd_alg_comp_alloc_ctx()* is used to allocate a context. Return a valid 
-handler if succeeds. Return 0 if fails.
-
-***void wd_alg_comp_free_ctx(handle_t handle)***
-
-| Layer | Parameter | Direction | Comments |
-| :-- | :-- | :-- | :-- |
-| algorithm | *handler* | input | A 64-bit handler value. |
-
-*wd_alg_comp_free_ctx()* is used to release a context that is denoted by a 
-handle.
-
-Both *wd_alg_comp_alloc_ctx()* and *wd_alg_comp_free_ctx()* are used by user 
-applications.
-
-Just like *struct wd_drv*, compression algorithm provides a similar instance, 
-*struct wd_alg_comp*.
+As soon as an accelerator is chosen, the counterpart of the accelerator could 
+also be found by name. The matched vendor driver must use the same name of the 
+accelerator. Otherwise, algorithm library can't find the correct vendor driver. 
+Then the node path of accelerator and driver are stored in *struct 
+wd_comp_sess*.
 
 ```
-    struct wd_alg_comp {
-        char *drv_name;
-        char *algo_name;
-        int  (*init)(struct wd_ctx *ctx, ...);
-        void (*exit)(struct wd_ctx *ctx, ...);
-        int  (*deflate)(struct wd_ctx *ctx, ...);
-        int  (*inflate)(struct wd_ctx *ctx, ...);
-        int  (*async_poll)(struct wd_ctx *ctx, ...);
+    struct wd_comp_sess {
+        char                *alg_name;  /* zlib or gzip */
+        char                node_path[];
+        wd_dev_mask_t       dev_mask;
+        struct wd_alg_comp  *drv;
+        void                *priv;      /* vendor specific structure */
     };
 ```
 
-| Field | Comments |
-| :-- | :-- |
-| *alg_name*   | Algorithm name |
-| *drv_name*   | Driver name that is matched with device name. |
-| *init*       | Hook to do hardware initialization that implemented in vendor |
-|              | driver. |
-| *exit*       | Hook to finish hardware operation that implemented in vendor |
-|              | driver. |
-| *deflate*    | Hook to deflate by hardware that implemented in vendor |
-|              | driver. |
-| *inflate*    | Hook to inflate by hardware that implemented in vendor |
-|              | driver. |
-| *async_poll* | Hook to poll hardware status in asynchronous operation that |
-|              | implemented in vendor driver. |
-
-Each compression vendor driver needs to implement an instance of 
-*struct wd_alg_comp*. All the instances of *struct wd_alg_comp* should be 
-referenced in an algorithm driver list of algorithm library.
-
-When an application calls *wd_alg_comp_alloc_ctx()* to request a context, 
-an accelerator is chosen. In *wd_alg_comp_alloc_ctx()*, *wd_request_ctx()* is 
-used to do the real job of request a context. Then *wd_alg_comp->init(ctx)* is 
-called to initialize the hardware.
+Field *priv* points to vendor specific structure. *struct priv_vendor_sess* is 
+an example of vendor specific structure.
 
 ```
-    struct priv_vendor_ctx {
+    struct priv_vendor_sess {
         void            *buf_in;
         void            *buf_out;
         size_t          in_len;
         size_t          out_len;
         __u64           phys_in;
         __u64           phys_out;
-        struct wd_ctx  *ctx;
+        struct wd_ctx   *ctx;
         ...
     };
 ```
@@ -519,10 +395,18 @@ called to initialize the hardware.
 | *out_len*  | Indicate the length of OUT buffer. |
 | *phys_in*  | Indicate physical address of temporary IN buffer. |
 | *phys_out* | Indicate physical address of temporary OUT buffer. |
+| *ctx*      | Indicate the context. |
 
-*struct priv_vendor_ctx* is an example of private structure attached in *priv* 
-field of *struct wd_ctx*. Vendor driver could define the structure by itself. 
-And it's bound by *init()* implementation in vendor driver.
+Whatever it's single context or mutiple contexts used in vendor driver, just 
+record them in vendor specific structure.
+
+After a session allocated, the control of CPU will be transfered to vendor 
+driver by *wd_alg_comp->init(sess)*. In the *init()*, vendor driver tries to 
+allocate a *context* by *wd_request_ctx()*.
+
+When application wants to free the accelerator, *wd_alg_comp_free_sess()* is 
+used. It'll execute *wd_alg_comp->exit(sess)* to free those contexts by 
+*wd_release_ctx()*.
 
 
 #### Compression & Decompression
@@ -565,11 +449,14 @@ functions in below.
 
 | Layer | Parameter | Direction | Comments |
 | :-- | :-- | :-- | :-- |
-| algorithm | *handler*  | Input | Indicate the context. User application |
+| algorithm | *handler*  | Input | Indicate the session. User application |
 |           |            |       | doesn't know the details in context. |
 |           | *arg*      | Input | Indicate the source and destination buffer. |
 
-Return 0 if it succeeds. Return negative value if it fails.
+Return 0 if it succeeds. Return negative value if it fails. Parameter *arg* 
+contains the buffer information. If multiple contexts are supported in vendor 
+driver, vendor driver needs to judge which context should be used by the 
+informations if parameter *arg*.
 
 ***int wd_alg_decompress(handler_t handler, struct wd_comp_arg \*arg)***
 
@@ -645,6 +532,116 @@ Vendor driver could merge and copy all these pieces into output buffer that
 provided by application.
 
 
+## Libaccel
+
+If there're multiple hardware accelerators in system, application may hope 
+WarpDrive could choose a right accelerator when application is using 
+algorithm library interface. Libaccel could take this job.
+
+
+### Libaccel APIs
+
+Libaccel is used to provide a set of hardware accelerators that match the same 
+requirement to applications. Libaccel isn't the requisite component in 
+Warpdrive framework. If applications access vendor driver directly, only the 
+accelerator matched with driver could be accessed.
+
+If applications only access algorithm libraries, libaccel provides the set of 
+accelerators to application. Applications could figure out a range where 
+algorithm libraries will choose accelerators.
+
+When libaccel works, it distinguishs different accelerators by ID. When each 
+hardware accelerator registers in UACCE subsystem, it gets an ID that is 
+attached in the device name. And the ID information is exposed to user space 
+by sysfs. So libaccel could parse IDs from sysfs and make use of them.
+
+```
+    #define MAX_ACCELS               512
+    #define MAX_WORDS_FOR_ACCELS     (MAX_ACCELS / 32)
+    
+    struct wd_dev_mask {
+        unsigned int    mask[MAX_WORDS_FOR_ACCELS];
+    };
+    typedef struct wd_dev_mask    wd_dev_mask_t;
+```
+
+MAX_ACCELS is predefined in WarpDrive. Now MAX_ACCELS is 512 that means 512 
+accelerators are supported in the same time. Each accelerator could be denoted 
+by one bit. So 512 bits could be covered by 16 words. These 16 words are the 
+masks, *wd_dev_mask_t*. If more accelerators need to be supported, just extend 
+the value of MAX_ACCELS in WarpDrive. The lowest bit indicates the hardware 
+accelerator 0.
+
+***int wd_get_accel_mask(char \*alg_name, wd_dev_mask_t \*dev_mask);***
+
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| libaccel | *alg_name* | Input  | Indicate the name of algorithm. |
+|          | *dev_mask* | Output | Indicate the mask bits of valid UACCE |
+|          |            |        | devices matched with the algorithm. |
+
+Return 0 if it finds accelerators matched with *alg_name*. Otherwise, it 
+returns negative value.
+
+***int wd_get_numa_accel_mask(int id, wd_dev_mask_t \*dev_mask);***
+
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| libaccel | *id*       | Input  | Indicate the ID of accelerator in UACCE |
+|          |            |        | subsystem. |
+|          | *dev_mask* | Output | Indicate the mask bits of valid UACCE |
+|          |            |        | devices in the same NUMA node range. |
+
+
+*wd_get_numa_accel_mask()* only wants to find the accelerators in the range of 
+the same NUMA node. Return 0 if it succeeds. Return negative value if it fails.
+
+In the same NUMA node, memory should be in the equal distance from different 
+devices. User application should gain better performance on it if data needs 
+to be shared among different accelerators.
+
+*wd_get_numa_accel_mask()* returns the set of matched accelerators that are in 
+the range of the same NUMA node. The set is stored in *dev_mask*. The return 
+value is 0 if the set is found. The return value is negative value if it fails 
+to find the set.
+
+*wd_get_numa_accel_mask()* queries the set of matched accelerators. Then 
+application could choose an accelerator in this set. And the key is in the 
+*dev_mask* value.
+
+
+The model of usage case is in below.
+
+Case 1:
+
+An application calls *wd_get_accel_mask(alg_name, dev_mask, ...)* to get the 
+set of accelerators. Then application could also access the *dev_mask* and 
+provide it as the parameter to algorithm library, such as 
+*wd_alg_comp_alloc_sess()*. Algorithm library selects an accelerator 
+automatically.
+
+Case 2:
+
+An application needs to access resources on multiple accelerators for different 
+algorithms, and it hopes all accelerators in the same NUMA range for better 
+performance. Application calls *wd_get_accel_mask(alg_name, ...)* to finds 
+available accelerators for one algorithm in a set.
+
+Then application picks up one accelerator from the set, and calls 
+*wd_get_numa_accel_mask()* to finds all accelerators in the same NUMA range.
+
+With the combination of different sets, application could finally get a set 
+matches its requirement. Then this set is used as parameter *dev_mask* when 
+algorithm library wants to allocate a session. Then algorithm library could 
+choose a high priority accelerator easily.
+
+Case 3:
+
+An application calls algorithm library directly with uninitialized value in 
+*dev_mask*. Algorithm finds an avaialbe accelerator automatically. In this 
+case, libaccel isn't used at all.
+
+
 ## Example
 
 ### Example in user application
@@ -659,8 +656,6 @@ operation. It costs too much CPU resources on polling and causes performance
 down. User application could divide the job into multiple parts. Then it 
 could make use of asynchronous mechanism to save time on polling.
 
-![comp_async](./wd_comp_async.png)
-
 ![comp_async2](./wd_comp_async2.png)
 
 There's also a limitation on asynchronous operation in SVA scenario. Let's 
@@ -674,26 +669,26 @@ asynchronous operation. It doesn't mean that we recommend to use asynchronous
 compression.
 
 
-### Example in vendor driver
+### Vendor Driver in Compression Algorithm Library
 
 Here's an example of implementing vendor driver to support compression 
 algorithm.
 
 Vendor driver needs to implement the instance of *struct wd_alg_comp*. When 
 user application creates the context, the vendor driver and device are both 
-bound into context. Then *wd_alg_comp_alloc_ctx()* continues to call 
-*ctx->init()* that defined in vendor driver. In this function tries to request 
+bound into context. Then *wd_alg_comp_alloc_sess()* continues to call 
+*sess->init()* that defined in vendor driver. In this function tries to request 
 context and initialize hardware.
 
-When user application invokes *wd_alg_compress()*, *ctx->deflate()* is called. 
+When user application invokes *wd_alg_compress()*, *sess->deflate()* is called. 
 It points to the implementation in vendor driver.
 
-When user application invokes *wd_alg_comp_free_ctx()*, "wd_comp_ctx->exit()" 
+When user application invokes *wd_alg_comp_free_sess()*, "wd_comp_sess->exit()" 
 is called. It also points to the implementation in vendor driver. It releases 
 context and free hardware.
 
 
-### Extra Helper functions
+## Extra Helper functions
 
 NOSVA is a special scenario in WarpDrive framework. It means that SVA feature 
 is disabled. Because of this, vendor driver can't access the same virtual 
