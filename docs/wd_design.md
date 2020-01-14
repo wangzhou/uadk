@@ -49,6 +49,11 @@
 |         |                |4) Drop the concept of session. |
 |  0.102  |                |1) Make libwd used by vendor driver only. |
 |         |                |2) Add session back for algorithm libraries. |
+|  0.103  |                |1) Remove the device list in compression algorithm |
+|         |                |   library since it's just an interim state. |
+|         |                |2) Fix typo error. |
+|         |                |3) Add context as parameter of wd_is_nosva(). |
+|         |                |4) Adjust the layout. |
 
 
 ## Terminology
@@ -241,8 +246,9 @@ application.
 
 It's similar to libwd. Compression Algorithm provides a similar interface to 
 allocate a session. Session is a superset of context, since vendor driver may 
-apply multiple contexts. All contexts could be stored in a session. And session 
-takes more job, such as binding accelerator and vendor driver together.
+apply multiple contexts. Context is related to the interface of vendor driver, 
+and session is related to the interface of application. Session takes more job, 
+such as binding accelerator and vendor driver together.
 
 
 #### Session in Compression Algorithm
@@ -275,140 +281,6 @@ Both *wd_alg_comp_alloc_sess()* and *wd_alg_comp_free_sess()* are used by user
 applications.
 
 
-#### Bind Accelerator and Driver
-
-Compression algorithm library requires each vendor driver providing an 
-instance, *struct wd_alg_comp*. This instance represents a vendor driver, 
-compression algorithm library binds an accelerator and a vendor driver into a 
-session. And *context* is stored in a *session*.
-
-```
-    struct wd_alg_comp {
-        char *drv_name;
-        char *algo_name;
-        int  (*init)(struct wd_sess *sess, ...);
-        void (*exit)(struct wd_sess *sess, ...);
-        int  (*deflate)(struct wd_sess *sess, ...);
-        int  (*inflate)(struct wd_sess *sess, ...);
-        int  (*async_poll)(struct wd_sess *sess, ...);
-    };
-```
-
-| Field | Comments |
-| :-- | :-- |
-| *alg_name*   | Algorithm name |
-| *drv_name*   | Driver name that is matched with device name. |
-| *init*       | Hook to do hardware initialization that implemented in vendor |
-|              | driver. |
-| *exit*       | Hook to finish hardware operation that implemented in vendor |
-|              | driver. |
-| *deflate*    | Hook to deflate by hardware that implemented in vendor |
-|              | driver. |
-| *inflate*    | Hook to inflate by hardware that implemented in vendor |
-|              | driver. |
-| *async_poll* | Hook to poll hardware status in asynchronous operation that |
-|              | implemented in vendor driver. |
-
-All the instances of *struct wd_alg_comp* from vendor drivers should be 
-referenced in an algorithm driver list of algorithm library.
-
-```
-    static struct wd_alg_comp wd_alg_comp_list[] = {
-        &Accel_driver_A,
-        &Accel_driver_B,
-        ...
-    };
-```
-
-When an application calls *wd_alg_comp_alloc_sess()* to request a session, 
-*wd_alg_comp_alloc_sess()* starts to search an available accelerator first. 
-Parameter *alg_name* and *dev_mask* are used to search accelerators.
-
-*wd_alg_comp_alloc_sess()* scans sysfs node to find devices matching *alg_name* 
-and form a device list. Each accelerator has an UACCE ID. If an accelerator's 
-ID doesn't exist in the *dev_mask*, it'll be skipped to insert the device list.
-
-```
-    struct wd_dev_list {
-        char                dev_name[MAX_DEV_NAME_LEN];
-        char                node_path[];
-        char                alg_name[];
-        int                 avail_ctxs;
-        int                 id;     // ID in UACCE subsystem
-        struct wd_dev_list  *list;
-    };
-```
-
-| Field | Comments |
-| :-- | :-- |
-| *dev_name*    | Indicate the name of accelerator without UACCE ID. |
-| *node_path*   | Indicate the file path of the accelerator in devfs. |
-| *alg_name*    | Indicate which algorithm is supported by the accelerator. |
-| *avail_ctxs*  | Indicate how many contexts are available to the accelerator. |
-| *id*          | Indicate the ID in UACCE subsystem. ID is also a bit index. |
-| *list*        | Indicate to the next matched accelerator. If there's no more |
-|               | accelerators, it's just NULL. |
-
-The weight of the priority list is *avail_ctxs*. *avail_ctxs* indicates the 
-number of context resources. If there're more contexts available to an 
-accelerator, it is in a high priority to be choosen. It's based on the policy 
-of resource balance. Compression algorithm library always choose the first 
-accelerator in the device list.
-
-As soon as an accelerator is chosen, the counterpart of the accelerator could 
-also be found by name. The matched vendor driver must use the same name of the 
-accelerator. Otherwise, algorithm library can't find the correct vendor driver. 
-Then the node path of accelerator and driver are stored in *struct 
-wd_comp_sess*.
-
-```
-    struct wd_comp_sess {
-        char                *alg_name;  /* zlib or gzip */
-        char                node_path[];
-        wd_dev_mask_t       dev_mask;
-        struct wd_alg_comp  *drv;
-        void                *priv;      /* vendor specific structure */
-    };
-```
-
-Field *priv* points to vendor specific structure. *struct priv_vendor_sess* is 
-an example of vendor specific structure.
-
-```
-    struct priv_vendor_sess {
-        void            *buf_in;
-        void            *buf_out;
-        size_t          in_len;
-        size_t          out_len;
-        __u64           phys_in;
-        __u64           phys_out;
-        struct wd_ctx   *ctx;
-        ...
-    };
-```
-
-| Field | Comments |
-| :-- | :-- |
-| *buf_in*   | Indicate virtual address of temporary IN buffer. |
-| *buf_out*  | Indicate virtual address of temporary OUT buffer. |
-| *in_len*   | Indicate the length of IN buffer. |
-| *out_len*  | Indicate the length of OUT buffer. |
-| *phys_in*  | Indicate physical address of temporary IN buffer. |
-| *phys_out* | Indicate physical address of temporary OUT buffer. |
-| *ctx*      | Indicate the context. |
-
-Whatever it's single context or mutiple contexts used in vendor driver, just 
-record them in vendor specific structure.
-
-After a session allocated, the control of CPU will be transfered to vendor 
-driver by *wd_alg_comp->init(sess)*. In the *init()*, vendor driver tries to 
-allocate a *context* by *wd_request_ctx()*.
-
-When application wants to free the accelerator, *wd_alg_comp_free_sess()* is 
-used. It'll execute *wd_alg_comp->exit(sess)* to free those contexts by 
-*wd_release_ctx()*.
-
-
 #### Compression & Decompression
 
 Compression & decompression always submit data buffer to hardware accelerator 
@@ -437,7 +309,7 @@ structure, *struct wd_comp_arg*.
 | *cb*      | Indicate the user application callback that is used in |
 |           | asynchronous mode. |
 
-When an application gets a context, it could request hardware accelerator to 
+When an application gets a session, it could request hardware accelerator to 
 work in synchronous mode or in asychronous mode. *cb* is the callback function 
 of user application. And it's optional. For synchronous mode, parameter *cb* 
 should be NULL. For asynchronous mode, parameter *cb* must be provided.
@@ -494,19 +366,20 @@ Return 0 if it succeeds. Return negative value if it fails.
 compression and decompression.
 
 *wd_alg_strm_compress()* and *wd_alg_strm_decompress()* are used in stream 
-mode. It means there's dependency between data blocks. When do the compression, 
-user must wait to compress the next data block if the previous one isn't 
-finished in hardware compression.
+mode. Stream mode means there's dependency between data blocks. When do the 
+compression, user must wait to compress the next data block if the previous 
+one isn't finished in hardware compression. Although data bandwidth is limited 
+in stream mode, it could support extreme large data file.
 
 
 #### Asynchronous Mode
 
 When it's in synchronous mode, user application is blocked in 
-*wd_alg_compress()* or *wd_alg_decompress()* until hardware operation is 
-done. When it's in asynchronous mode, user application gets return from 
-*wd_alg_compress()* or *wd_alg_decompress()* immediately. But hardware 
-accelerator is still running. User application could call *wd_alg_comp_poll()* 
-to check whether hardware is done.
+*wd_alg_compress()* or *wd_alg_decompress()* until hardware is available for 
+the next data block. When it's in asynchronous mode, user application gets 
+return from *wd_alg_compress()* or *wd_alg_decompress()* immediately. But 
+hardware accelerator is still running. User application could call 
+*wd_alg_comp_poll()* to check whether hardware is done.
 
 If multiple jobs are running in hardware in parallel, *wd_alg_comp_poll()* 
 could save the time on polling hardware status. And user application could 
@@ -516,8 +389,8 @@ sleep for a fixed time slot before polling status, it could save CPU resources.
 
 | Parameter | Direction | Comments |
 | :-- | :-- | :-- |
-| *handler* | Input | Indicate the context. User application doesn't know the |
-|           |       | details in context. |
+| *handler* | Input | Indicate the session. User application doesn't know the |
+|           |       | details in session. |
 
 Return 0 if hardware is done. Return error number if hardware is still working.
 
@@ -530,6 +403,107 @@ hardware accelerator completion.
 
 Vendor driver could merge and copy all these pieces into output buffer that 
 provided by application.
+
+
+#### Bind Accelerator and Driver
+
+Compression algorithm library requires each vendor driver providing an 
+instance, *struct wd_alg_comp*. This instance represents a vendor driver, 
+compression algorithm library binds an accelerator and a vendor driver into a 
+session. And *context* is stored in a *session*.
+
+```
+    struct wd_alg_comp {
+        char *drv_name;
+        char *algo_name;
+        int  (*init)(struct wd_sess *sess, ...);
+        void (*exit)(struct wd_sess *sess, ...);
+        int  (*deflate)(struct wd_sess *sess, ...);
+        int  (*inflate)(struct wd_sess *sess, ...);
+        int  (*async_poll)(struct wd_sess *sess, ...);
+    };
+```
+
+| Field | Comments |
+| :-- | :-- |
+| *alg_name*   | Algorithm name |
+| *drv_name*   | Driver name that is matched with device name. |
+| *init*       | Hook to do hardware initialization that implemented in vendor |
+|              | driver. |
+| *exit*       | Hook to finish hardware operation that implemented in vendor |
+|              | driver. |
+| *deflate*    | Hook to deflate by hardware that implemented in vendor |
+|              | driver. |
+| *inflate*    | Hook to inflate by hardware that implemented in vendor |
+|              | driver. |
+| *async_poll* | Hook to poll hardware status in asynchronous operation that |
+|              | implemented in vendor driver. |
+
+All the instances of *struct wd_alg_comp* from vendor drivers should be 
+referenced in an algorithm driver list of algorithm library.
+
+```
+    static struct wd_alg_comp wd_alg_comp_list[] = {
+        &Accel_driver_A,
+        &Accel_driver_B,
+        ...
+    };
+```
+
+When an application calls *wd_alg_comp_alloc_sess()* to request a session, 
+*wd_alg_comp_alloc_sess()* starts to search an available accelerator first. 
+Parameter *alg_name* and *dev_mask* are used to search accelerators.
+
+*wd_alg_comp_alloc_sess()* scans sysfs node to find devices matching *alg_name* 
+and form a device list. Each accelerator has an UACCE ID. If an accelerator's 
+ID doesn't exist in the *dev_mask*, it'll be skipped to insert the device list.
+
+The weight of the priority list is *avail_ctxs* that indicates the number of 
+context resources. If there're more contexts available to an accelerator, it 
+is in a high priority to be choosen. It's based on the policy of resource 
+balance. Compression algorithm library always choose the first accelerator in 
+the device list.
+
+As soon as an accelerator is chosen, the counterpart of the accelerator could 
+also be found by name. The matched vendor driver must use the same name of the 
+accelerator. Otherwise, algorithm library can't find the correct vendor driver. 
+Then the node path of accelerator and driver are stored in *struct 
+wd_comp_sess*.
+
+```
+    struct wd_comp_sess {
+        char                *alg_name;  /* zlib or gzip */
+        char                node_path[];
+        wd_dev_mask_t       dev_mask;
+        struct wd_alg_comp  *drv;
+        void                *priv;      /* vendor specific structure */
+    };
+```
+
+Field *priv* points to vendor specific structure. *struct priv_vendor_sess* is 
+an example of vendor specific structure.
+
+```
+    struct priv_vendor_sess {
+        struct wd_ctx   *ctx;
+        ...
+    };
+```
+
+| Field | Comments |
+| :-- | :-- |
+| *ctx*      | Indicate the context. |
+
+Whatever it's single context or mutiple contexts used in vendor driver, just 
+record them in vendor specific structure.
+
+After a session allocated, the control of CPU will be transfered to vendor 
+driver by *wd_alg_comp->init(sess)*. In the *init()*, vendor driver tries to 
+allocate a *context* by *wd_request_ctx()*.
+
+When application wants to free the accelerator, *wd_alg_comp_free_sess()* is 
+used. It'll execute *wd_alg_comp->exit(sess)* to free those contexts by 
+*wd_release_ctx()*.
 
 
 ## Libaccel
@@ -669,6 +643,23 @@ asynchronous operation. It doesn't mean that we recommend to use asynchronous
 compression.
 
 
+### Vendor Driver Exposed to User Application
+
+Here's an example of implementing vendor driver that is exposed to application 
+direcly.
+
+When user application needs to access hardware accelerator, it calls the 
+interface in vendor driver. The interface is defined by vendor driver. Then 
+vendor driver requests a context by *wd_request_ctx()*.
+
+With the context, vendor driver could access hardware accelerator by libwd, 
+such as MMIO, memory mapping, and so on. And application has to use the 
+interface that is defined by vendor driver.
+
+When application doesn't want to access hardware accelerator, vendor driver 
+could invokes *wd_release_ctx()* to release the hardware.
+
+
 ### Vendor Driver in Compression Algorithm Library
 
 Here's an example of implementing vendor driver to support compression 
@@ -701,14 +692,17 @@ use NOSVA scenario, user must have the root permission. And the additional
 APIs are provied in NOSVA scenario.
 
 
-***int wd_is_nosva(void);***
+***int wd_is_nosva(struct wd_ctx \*ctx);***
 
-*wd_is_nosva* is in libwd.
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| libwd | *ctx*  | Input | Indicate the working context. |
 
-Return 1 if it doesn't support SVA. Return 0 if it supports SVA.
+Return 1 if the context related to the accelerator doesn't support SVA. Return 
+0 if the context related to the accelerator supports SVA.
 
-Vendor driver needs to identify whether the current device is working in SVA 
-scenario or NOSVA scenario.
+Vendor driver needs to identify whether the current accelerator is working in 
+SVA scenario or NOSVA scenario.
 
 In NOSVA scenario, vendor driver needs to allocate memory that could be 
 recognized by the accelerator.
