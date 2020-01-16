@@ -54,6 +54,7 @@
 |         |                |2) Fix typo error. |
 |         |                |3) Add context as parameter of wd_is_nosva(). |
 |         |                |4) Adjust the layout. |
+|  0.104  |                |1) Merge libaccel into libwd. |
 
 
 ## Terminology
@@ -71,7 +72,7 @@
 
 WarpDrive is a framework for user application to access hardware accelerator 
 in a unified, secure, and efficient way. WarpDrive is comprised of UACCE, 
-libwd, libaccel and many other algorithm libraries for different applications.
+libwd and many other algorithm libraries for different applications.
 
 ![overview](./wd_overview.png)
 
@@ -83,12 +84,10 @@ functions to do UACCE related work.
 Algorithm libraries offer a set of APIs to users, who could use this set of 
 APIs to do specific task without accessing low level implementations.
 
-Libaccel offers the ability to choose a right accelerator.
-
 So two mechanisms are provided to user application. User application could 
 either access libwd or algorithm libraries.
 
-This document focuses on the design of libwd, libaccel and algorithm libraries.
+This document focuses on the design of libwd and algorithm libraries.
 
 
 ## Based Technology
@@ -212,6 +211,102 @@ enum uacce_qfrt qfrt);***
 
 qfrt means queue file region type. The details could be found in UACCE kernel 
 patch set <https://lkml.org/lkml/2019/11/22/1728>.
+
+
+### Categorize Accelerators
+
+*wd_request_ctx()* only opens the specified hardware accelerator. If there're 
+mulitple hardware accelerators in system, vendor driver should decide to open 
+which accelerator. Libwd helps to categorize accelerators. It provides a set of 
+hardware accelerators that match the same requirement. Vendor driver or 
+application could make a decision based on the set.
+
+When each hardware accelerator registers in UACCE subsystem, it gets an ID that 
+is attached in the device name. And the ID information is exposed to user space 
+by sysfs. So libwd could parse IDs from sysfs and make use of them.
+
+```
+    #define MAX_ACCELS               512
+    #define MAX_WORDS_FOR_ACCELS     (MAX_ACCELS / 32)
+    
+    struct wd_dev_mask {
+        unsigned int    mask[MAX_WORDS_FOR_ACCELS];
+    };
+    typedef struct wd_dev_mask    wd_dev_mask_t;
+```
+
+MAX_ACCELS is predefined in libwd. Now MAX_ACCELS is 512 that means 512 
+accelerators are supported in the same time. Each accelerator could be denoted 
+by one bit. So 512 bits could be covered by 16 words. These 16 words are the 
+masks, *wd_dev_mask_t*. If more accelerators need to be supported, just extend 
+the value of MAX_ACCELS in WarpDrive. The lowest bit indicates the hardware 
+accelerator 0.
+
+***int wd_get_accel_mask(char \*alg_name, wd_dev_mask_t \*dev_mask);***
+
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| libwd | *alg_name* | Input  | Indicate the name of algorithm. |
+|       | *dev_mask* | Output | Indicate the mask bits of valid UACCE |
+|       |            |        | devices matched with the algorithm. |
+
+Return 0 if it finds accelerators matched with *alg_name*. Otherwise, it 
+returns negative value.
+
+***int wd_get_numa_accel_mask(int id, wd_dev_mask_t \*dev_mask);***
+
+| Layer | Parameter | Direction | Comments |
+| :-- | :-- | :-- | :-- |
+| libwd | *id*       | Input  | Indicate the ID of accelerator in UACCE |
+|       |            |        | subsystem. |
+|       | *dev_mask* | Output | Indicate the mask bits of valid UACCE |
+|       |            |        | devices in the same NUMA node range. |
+
+
+*wd_get_numa_accel_mask()* only wants to find the accelerators in the range of 
+the same NUMA node. Return 0 if it succeeds. Return negative value if it fails.
+
+In the same NUMA node, memory should be in the equal distance from different 
+devices. User application should gain better performance on it if data needs 
+to be shared among different accelerators.
+
+*wd_get_numa_accel_mask()* returns the set of matched accelerators that are in 
+the range of the same NUMA node. The set is stored in *dev_mask*. The return 
+value is 0 if the set is found. The return value is negative value if it fails 
+to find the set.
+
+*wd_get_numa_accel_mask()* queries the set of matched accelerators. Then 
+application could choose an accelerator in this set. And the key is in the 
+*dev_mask* value.
+
+
+The model of usage case is in below.
+
+Case 1:
+
+Vendor driver calls *wd_get_accel_mask(alg_name, dev_mask, ...)* to get the 
+set of accelerators. Vendor driver or application could choose a right 
+accelerator from the set.
+
+Case 2:
+
+An application needs to access resources on multiple accelerators for different 
+algorithms, and it hopes all accelerators in the same NUMA range for better 
+performance. Vendor driver calls *wd_get_accel_mask(alg_name, ...)* to finds 
+available accelerators for one algorithm in a set.
+
+Then application picks up one accelerator from the set, and calls 
+*wd_get_numa_accel_mask()* to finds all accelerators in the same NUMA range by 
+another vendor driver.
+
+With the combination of different sets, application could finally get a set 
+matches its requirement. Finally the right accelerator could be chosen from 
+the set.
+
+Case 3:
+
+An application calls algorithm library directly with uninitialized value in 
+*dev_mask*. Algorithm finds an avaialbe accelerator automatically.
 
 
 ## Vendor Driver
@@ -504,116 +599,6 @@ allocate a *context* by *wd_request_ctx()*.
 When application wants to free the accelerator, *wd_alg_comp_free_sess()* is 
 used. It'll execute *wd_alg_comp->exit(sess)* to free those contexts by 
 *wd_release_ctx()*.
-
-
-## Libaccel
-
-If there're multiple hardware accelerators in system, application may hope 
-WarpDrive could choose a right accelerator when application is using 
-algorithm library interface. Libaccel could take this job.
-
-
-### Libaccel APIs
-
-Libaccel is used to provide a set of hardware accelerators that match the same 
-requirement to applications. Libaccel isn't the requisite component in 
-Warpdrive framework. If applications access vendor driver directly, only the 
-accelerator matched with driver could be accessed.
-
-If applications only access algorithm libraries, libaccel provides the set of 
-accelerators to application. Applications could figure out a range where 
-algorithm libraries will choose accelerators.
-
-When libaccel works, it distinguishs different accelerators by ID. When each 
-hardware accelerator registers in UACCE subsystem, it gets an ID that is 
-attached in the device name. And the ID information is exposed to user space 
-by sysfs. So libaccel could parse IDs from sysfs and make use of them.
-
-```
-    #define MAX_ACCELS               512
-    #define MAX_WORDS_FOR_ACCELS     (MAX_ACCELS / 32)
-    
-    struct wd_dev_mask {
-        unsigned int    mask[MAX_WORDS_FOR_ACCELS];
-    };
-    typedef struct wd_dev_mask    wd_dev_mask_t;
-```
-
-MAX_ACCELS is predefined in WarpDrive. Now MAX_ACCELS is 512 that means 512 
-accelerators are supported in the same time. Each accelerator could be denoted 
-by one bit. So 512 bits could be covered by 16 words. These 16 words are the 
-masks, *wd_dev_mask_t*. If more accelerators need to be supported, just extend 
-the value of MAX_ACCELS in WarpDrive. The lowest bit indicates the hardware 
-accelerator 0.
-
-***int wd_get_accel_mask(char \*alg_name, wd_dev_mask_t \*dev_mask);***
-
-| Layer | Parameter | Direction | Comments |
-| :-- | :-- | :-- | :-- |
-| libaccel | *alg_name* | Input  | Indicate the name of algorithm. |
-|          | *dev_mask* | Output | Indicate the mask bits of valid UACCE |
-|          |            |        | devices matched with the algorithm. |
-
-Return 0 if it finds accelerators matched with *alg_name*. Otherwise, it 
-returns negative value.
-
-***int wd_get_numa_accel_mask(int id, wd_dev_mask_t \*dev_mask);***
-
-| Layer | Parameter | Direction | Comments |
-| :-- | :-- | :-- | :-- |
-| libaccel | *id*       | Input  | Indicate the ID of accelerator in UACCE |
-|          |            |        | subsystem. |
-|          | *dev_mask* | Output | Indicate the mask bits of valid UACCE |
-|          |            |        | devices in the same NUMA node range. |
-
-
-*wd_get_numa_accel_mask()* only wants to find the accelerators in the range of 
-the same NUMA node. Return 0 if it succeeds. Return negative value if it fails.
-
-In the same NUMA node, memory should be in the equal distance from different 
-devices. User application should gain better performance on it if data needs 
-to be shared among different accelerators.
-
-*wd_get_numa_accel_mask()* returns the set of matched accelerators that are in 
-the range of the same NUMA node. The set is stored in *dev_mask*. The return 
-value is 0 if the set is found. The return value is negative value if it fails 
-to find the set.
-
-*wd_get_numa_accel_mask()* queries the set of matched accelerators. Then 
-application could choose an accelerator in this set. And the key is in the 
-*dev_mask* value.
-
-
-The model of usage case is in below.
-
-Case 1:
-
-An application calls *wd_get_accel_mask(alg_name, dev_mask, ...)* to get the 
-set of accelerators. Then application could also access the *dev_mask* and 
-provide it as the parameter to algorithm library, such as 
-*wd_alg_comp_alloc_sess()*. Algorithm library selects an accelerator 
-automatically.
-
-Case 2:
-
-An application needs to access resources on multiple accelerators for different 
-algorithms, and it hopes all accelerators in the same NUMA range for better 
-performance. Application calls *wd_get_accel_mask(alg_name, ...)* to finds 
-available accelerators for one algorithm in a set.
-
-Then application picks up one accelerator from the set, and calls 
-*wd_get_numa_accel_mask()* to finds all accelerators in the same NUMA range.
-
-With the combination of different sets, application could finally get a set 
-matches its requirement. Then this set is used as parameter *dev_mask* when 
-algorithm library wants to allocate a session. Then algorithm library could 
-choose a high priority accelerator easily.
-
-Case 3:
-
-An application calls algorithm library directly with uninitialized value in 
-*dev_mask*. Algorithm finds an avaialbe accelerator automatically. In this 
-case, libaccel isn't used at all.
 
 
 ## Example
