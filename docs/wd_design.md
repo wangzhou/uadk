@@ -55,6 +55,8 @@
 |         |                |3) Add context as parameter of wd_is_nosva(). |
 |         |                |4) Adjust the layout. |
 |  0.104  |                |1) Merge libaccel into libwd. |
+|  0.105  |                |1) Add parameter in callback for async mode. |
+|         |                |2) Fix minor issues. |
 
 
 ## Terminology
@@ -77,12 +79,13 @@ libwd and many other algorithm libraries for different applications.
 ![overview](./wd_overview.png)
 
 Libwd provides a wrapper of basic UACCE user space interfaces, they will be a 
-set of helper functions. Libwd offers a register interface to let hardware 
-vendors to register their own user space driver, which could use above helper 
-functions to do UACCE related work.
+set of helper functions.
 
 Algorithm libraries offer a set of APIs to users, who could use this set of 
-APIs to do specific task without accessing low level implementations.
+APIs to do specific task without accessing low level implementations. Algorithm 
+libraries also offer a register interface to let hardware vendors to register 
+their own user space driver, which could use above helper functions to do UACCE 
+related work.
 
 So two mechanisms are provided to user application. User application could 
 either access libwd or algorithm libraries.
@@ -106,14 +109,14 @@ As the kernel driver of WarpDrive, UACCE offers a set of APIs between kernel
 and user space.
 
 Since UACCE driver is still under upstreaming process, latest APIs of UACCE 
-can be found in <https://lkml.org/lkml/2019/11/22/1728>. UACCE is introduced 
+can be found in <https://lkml.org/lkml/2020/1/10/1115>. UACCE is introduced 
 in "uacce.rst" and "sysfs-driver-uacce" of this patchset.
 
 Hardware accelerator registers in UACCE as a char dev. At the same time, 
 hardware informations of accelerators are also exported in sysfs node. For 
-example, the file path of char dev is */dev/misc/[Accel]* and hardware 
-informations are in */sys/class/uacce/[Accel]/*. The same name is shared in 
-both devfs and sysfs. The *Accel* is comprised of name, dash and id.
+example, the file path of char dev is */dev/[Accel]* and hardware informations 
+are in */sys/class/uacce/[Accel]/*. The same name is shared in both devfs and 
+sysfs. The *Accel* is comprised of name, dash and id.
 
 After opening this char device once, vendor driver will get a context to access 
 the resource of this accelerator device. Vendor driver can configure above 
@@ -144,7 +147,7 @@ informations could be associated with *context*, and all of them are defined in
     struct wd_ctx {
         int            fd;
         char           node_path[];
-        void           *priv;   // point to vendor specific structure
+        void           *priv;
     };
 ```
 
@@ -383,26 +386,29 @@ and collet the output. These buffer informations could be encapsulated into a
 structure, *struct wd_comp_arg*.
 
 ```
-    typedef void *wd_alg_comp_cb_t(void);
+    typedef void *wd_alg_comp_cb_t(void *cb_param);
     struct wd_comp_arg {
         void              *src;
         size_t            *src_len;
         void              *dst;
         size_t            *dst_len;
         wd_alg_comp_cb_t  *cb;
+        void              *cb_param;
     };
 ```
 
 | Field | Comments |
 | :-- | :-- |
-| *src*     | Indicate the virtual address of source buffer that is prepared |
-|           | by user application. |
-| *src_len* | Indicate the length of source buffer. |
-| *dst*     | Indicate the virtual address of destination buffer that is |
-|           | prepared by user application. |
-| *dst_len* | Indicate the length of destination buffer. |
-| *cb*      | Indicate the user application callback that is used in |
-|           | asynchronous mode. |
+| *src*      | Indicate the virtual address of source buffer that is prepared |
+|            | by user application. |
+| *src_len*  | Indicate the length of source buffer. |
+| *dst*      | Indicate the virtual address of destination buffer that is |
+|            | prepared by user application. |
+| *dst_len*  | Indicate the length of destination buffer. |
+| *cb*       | Indicate the user application callback that is used in |
+|            | asynchronous mode. |
+| *cb_param* | Indicate the parameter that is used by callback in asynchronous |
+|            | mode. |
 
 When an application gets a session, it could request hardware accelerator to 
 work in synchronous mode or in asychronous mode. *cb* is the callback function 
@@ -505,7 +511,9 @@ provided by application.
 Compression algorithm library requires each vendor driver providing an 
 instance, *struct wd_alg_comp*. This instance represents a vendor driver, 
 compression algorithm library binds an accelerator and a vendor driver into a 
-session. And *context* is stored in a *session*.
+session. And *context* should also be stored in a *session*, but it's not a 
+public fiend in the *session*. *Context* should be stored in the vendor private 
+structure field in *session*.
 
 ```
     struct wd_alg_comp {
