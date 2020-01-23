@@ -56,4 +56,3 @@ void hizip_test_fini(struct wd_scheduler *sched)
 	wd_sched_fini(sched);
 	free(sched->qs);
 }
-

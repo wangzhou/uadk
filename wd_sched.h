@@ -38,6 +38,9 @@ struct wd_scheduler {
 		int send_retries;
 		int recv;
 		int recv_retries;
+		struct timeval last;
+		struct timeval current;
+		unsigned long latency_sum;
 	} *stat;
 };
 
@@ -48,6 +51,19 @@ extern int wd_sched_work(struct wd_scheduler *sched, unsigned long have_input);
 static inline bool wd_sched_empty(struct wd_scheduler *sched)
 {
 	return sched->cl == sched->msg_cache_num;
+}
+
+/* test helpers */
+static inline void get_send_latency_sum(struct timeval first, struct timeval second,
+				 unsigned long *latency_sum)
+{
+	/* us */
+	unsigned long latency;
+
+	latency = (second.tv_sec - first.tv_sec) * 1000000 +
+		  second.tv_usec - first.tv_usec;
+
+	*latency_sum += latency;
 }
 
 #endif

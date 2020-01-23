@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include <sys/time.h>
 #include "config.h"
 #include "wd_sched.h"
 #include "smm.h"
@@ -117,6 +118,13 @@ static int __sync_send(struct wd_scheduler *sched) {
 	dbg("send ci(%d) to q(%d): %p\n", sched->c_h, sched->q_h,
 	    sched->msgs[sched->c_h].msg);
 	do {
+		gettimeofday(&sched->stat->current, NULL);
+		if (sched->stat->send)
+			get_send_latency_sum(sched->stat->last,
+					     sched->stat->current,
+					     &sched->stat->latency_sum);
+		sched->stat->last = sched->stat->current;
+
 		sched->stat[sched->q_h].send++;
 		ret = wd_send(&sched->qs[sched->q_h],
 			      sched->msgs[sched->c_h].msg);

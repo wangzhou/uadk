@@ -79,5 +79,4 @@ static inline int hizip_check_output(void *buf, unsigned int size,
 	return 0;
 }
 #endif
-
 #endif /* TEST_LIB_H_ */

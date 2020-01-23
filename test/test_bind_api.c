@@ -273,7 +273,8 @@ static int run_test(struct test_options *opts)
 	struct wd_scheduler sched = {0};
 	struct hizip_priv hizip_priv = {0};
 	struct timeval start_tval, end_tval;
-	float tc = 0, speed;
+	float tc = 0, speed, average_sending_latency;
+	unsigned long package_num;
 
 	hizip_priv.opts = opts;
 	hizip_priv.msgs = calloc(opts->req_cache_num, sizeof(*hizip_priv.msgs));
@@ -337,8 +338,13 @@ static int run_test(struct test_options *opts)
 	              end_tval.tv_usec - start_tval.tv_usec);
 
 	speed = opts->total_len / tc / 1024 / 1024 * 1000 * 1000;
-	fprintf(stderr,"Compress bz=%d, speed=%0.3f MB/s\n",
-		opts->block_size, speed);
+	package_num = opts->total_len / opts->block_size;
+	average_sending_latency = (float)sched.stat->latency_sum / package_num;
+	fprintf(stderr,"Compress bz=%d, speed=%0.3f MB/s, average sending latency=%0.3f us\n",
+		opts->block_size, speed, average_sending_latency);
+	fprintf(stderr, "latency sum=%lu us, package num=%lu\n",
+		sched.stat->latency_sum, package_num);
+
 out_with_out_buf:
 	free(out_buf);
 out_with_in_buf:
