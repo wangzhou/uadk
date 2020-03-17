@@ -622,6 +622,12 @@ static int run_test(struct test_options *opts)
 	return 0;
 }
 
+void handle_sigbus(int sig)
+{
+	    printf("SIGBUS!\n");
+	        _exit(0);
+}
+
 int main(int argc, char **argv)
 {
 	int opt;
@@ -639,6 +645,8 @@ int main(int argc, char **argv)
 		.verify			= false,
 		.verbose		= false,
 	};
+
+	signal(SIGBUS, handle_sigbus);
 
 	while ((opt = getopt(argc, argv, "hb:k:s:q:n:o:c:Vw:l:vz")) != -1) {
 		switch (opt) {
