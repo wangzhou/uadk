@@ -461,7 +461,6 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 
 	if (opts->option & TEST_DVM) {
 		hizip_priv = hizip_save;
-		munmap(in_buf, hizip_priv.total_len);
 		munmap(out_buf, hizip_priv.total_len * EXPANSION_RATIO);
 		for (j = 0; j < opts->compact_run_num; j++) {
 			hizip_priv = hizip_save;
