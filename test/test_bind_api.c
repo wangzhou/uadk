@@ -9,6 +9,7 @@
 #include <math.h>
 #include <signal.h>
 #include <time.h>
+#include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -375,16 +376,35 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 
 	hizip_priv.total_len = opts->total_len;
 
-	in_buf = hizip_priv.in_buf = malloc(hizip_priv.total_len);
-	if (!in_buf) {
-		ret = -ENOMEM;
-		goto out_with_msgs;
-	}
+	if (opts->option & TEST_DVM) {
+		int prot = PROT_READ | PROT_WRITE;
+		int flag = MAP_SHARED | MAP_ANONYMOUS;
+		int len = hizip_priv.total_len;
+		in_buf = hizip_priv.in_buf = mmap(NULL, len, prot, flag, -1, 0);
+		if (in_buf == MAP_FAILED) {
+			ret = -ENOMEM;
+			goto out_with_msgs;
+		}
 
-	out_buf = hizip_priv.out_buf = malloc(hizip_priv.total_len * EXPANSION_RATIO);
-	if (!out_buf) {
-		ret = -ENOMEM;
-		goto out_with_in_buf;
+		len = hizip_priv.total_len * EXPANSION_RATIO;
+		out_buf = hizip_priv.out_buf = mmap(NULL, len, prot, flag, -1, 0);
+		if (out_buf == MAP_FAILED) {
+			ret = -ENOMEM;
+			goto out_with_in_buf;
+		}
+	} else {
+
+		in_buf = hizip_priv.in_buf = malloc(hizip_priv.total_len);
+		if (!in_buf) {
+			ret = -ENOMEM;
+			goto out_with_msgs;
+		}
+
+		out_buf = hizip_priv.out_buf = malloc(hizip_priv.total_len * EXPANSION_RATIO);
+		if (!out_buf) {
+			ret = -ENOMEM;
+			goto out_with_in_buf;
+		}
 	}
 
 	hizip_prepare_input_data(&hizip_priv);
@@ -439,6 +459,21 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 		}
 	}
 
+	if (opts->option & TEST_DVM) {
+		hizip_priv = hizip_save;
+		munmap(in_buf, hizip_priv.total_len);
+		munmap(out_buf, hizip_priv.total_len * EXPANSION_RATIO);
+		for (j = 0; j < opts->compact_run_num; j++) {
+			hizip_priv = hizip_save;
+
+			ret = hizip_test_sched(&sched, opts, &hizip_priv);
+			if (ret < 0) {
+				WD_ERR("hizip test fail with %d\n", ret);
+				goto out_with_fini;
+			}
+		}
+	}
+
 	clock_gettime(CLOCK_MONOTONIC_RAW, &end_time);
 	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_cputime);
 	getrusage(RUSAGE_SELF, &end_rusage);
@@ -485,9 +520,15 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 out_with_fini:
 	hizip_test_fini(&sched, opts);
 out_with_out_buf:
-	free(out_buf);
+	if (opts->option & TEST_DVM)
+		munmap(out_buf, hizip_priv.total_len * EXPANSION_RATIO);
+	else
+		free(out_buf);
 out_with_in_buf:
-	free(in_buf);
+	if (opts->option & TEST_DVM)
+		munmap(in_buf, hizip_priv.total_len);
+	else
+		free(in_buf);
 out_with_msgs:
 	free(hizip_priv.msgs);
 	return ret;
@@ -675,6 +716,9 @@ int main(int argc, char **argv)
 				break;
 			case 'z':
 				opts.option |= TEST_ZLIB;
+				break;
+			case 'd':
+				opts.option |= TEST_DVM;
 				break;
 			default:
 				SYS_ERR_COND(1, "invalid argument to -o: '%s'\n", optarg);

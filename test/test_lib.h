@@ -52,6 +52,7 @@ struct test_options {
 
 #define PERFORMANCE		(1UL << 0)
 #define TEST_ZLIB		(1UL << 1)
+#define TEST_DVM		(1UL << 2)
 	unsigned long option;
 
 	bool verify;
