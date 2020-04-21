@@ -15,6 +15,8 @@
 #include "wd.h"
 #include "hisi_qm_udrv.h"
 
+#define QM_CQ_DEPTH 16
+
 #define QM_SQE_SIZE		128 /* TODO: get it from sysfs */
 #define QM_CQE_SIZE		16
 
@@ -278,7 +280,7 @@ int hisi_qm_recv(struct wd_ctx *ctx, void **resp)
 	*resp = q_info->req_cache[i];
 	q_info->req_cache[i] = NULL;
 
-	if (i == (QM_Q_DEPTH - 1)) {
+	if (i == (QM_CQ_DEPTH - 1)) {
 		q_info->cqc_phase = !(q_info->cqc_phase);
 		i = 0;
 	} else
@@ -287,7 +289,10 @@ int hisi_qm_recv(struct wd_ctx *ctx, void **resp)
 	q_info->db(q_info, DOORBELL_CMD_CQ, i, 0);
 
 	q_info->cq_head_index = i;
-	q_info->sq_head_index = i;
+	if (q_info->sq_head_index == (QM_Q_DEPTH - 1))
+		q_info->sq_head_index = 0;
+	else
+		q_info->sq_head_index++;
 
 	return ret;
 }
