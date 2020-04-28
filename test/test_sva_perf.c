@@ -277,12 +277,17 @@ static int run_one_test(struct priv_options *opts, struct hizip_stats *stats)
 		ret = -ENOMEM;
 		goto out_with_msgs;
 	}
+	memset(in_buf, 0x0, copts->total_len);
+	mlock(in_buf, copts->total_len);
 
 	out_buf = ctx.out_buf = mmap_alloc(copts->total_len * EXPANSION_RATIO);
 	if (!out_buf) {
 		ret = -ENOMEM;
 		goto out_with_in_buf;
 	}
+
+	memset(out_buf, 0x0, copts->total_len * EXPANSION_RATIO);
+	mlock(out_buf, copts->total_len * EXPANSION_RATIO);
 
 	enable_thp(opts, &ctx);
 
