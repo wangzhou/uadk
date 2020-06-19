@@ -43,16 +43,7 @@ struct hisi_qp_ctx_temp *hisi_qm_alloc_qp_ctx_t(handle_t h_ctx)
 
 void hisi_qm_free_ctx_t(struct hisi_qp_ctx_temp *qp_ctx)
 {
-}
 
-int hisi_qm_send_t(struct hisi_qp_ctx_temp *qp_ctx, void *req)
-{
-	return 0;
-}
-
-int hisi_qm_recv_t(struct hisi_qp_ctx_temp *qp_ctx, void **resp)
-{
-	return 0;
 }
 /* fix me end */
 
@@ -66,28 +57,42 @@ struct hisi_sec_sess {
 
 int hisi_sec_init(struct hisi_sec_sess *sec_sess)
 {
+	int ret;
 	/* wd_request_ctx */
 	sec_sess->qp_ctx.h_ctx = wd_request_ctx(sec_sess->node_path);
 	
 	/* alloc_qp_ctx */
-	hisi_qm_alloc_qp_ctx_t(sec_sess->qp_ctx.h_ctx);
+	ret = hisi_qm_alloc_qp_ctx_t(sec_sess->qp_ctx.h_ctx);
+	if (ret)
+		return ret;
 
 	/* update qm private info: sqe_size, op_type */
 
 	/* update sec private info: something maybe */
 
-	wd_ctx_start(sec_sess->qp_ctx.h_ctx);
+	ret = wd_ctx_start(sec_sess->qp_ctx.h_ctx);
+	if (ret) {
+		WD_ERR("ctx start failed!\n");
+		goto out_ctx;
+	}
 
 	return 0;
+out_ctx:
+	hisi_qm_free_ctx(sec_sess->qp_ctx.h_ctx);
+
+	return ret;
 }
 
 void hisi_sec_exit(struct hisi_sec_sess *sec_sess)
 {
 	/* wd_ctx_stop */
+	wd_ctx_stop(sec_sess->qp_ctx.h_ctx);
 
 	/* free alloc_qp_ctx */
+	hisi_qm_free_ctx(sec_sess->qp_ctx.h_ctx);
 
 	/* wd_release_ctx */
+	wd_release_ctx(sec_sess->qp_ctx.h_ctx);
 }
 
 int hisi_sec_set_key(struct hisi_sec_sess *sess, const __u8 *key, __u32 key_len)
@@ -117,7 +122,7 @@ int hisi_sec_crypto(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
 	//fill hisi sec sqe;
 	hisi_cipher_create_request(sess, arg, &msg);
 
-	ret = hisi_qm_send_t(&priv->qp_ctx, &msg);
+	ret = hisi_qm_send(&priv->qp_ctx, &msg);
 	if (ret == -EBUSY) {
 		usleep(1);
 	}
@@ -126,7 +131,7 @@ int hisi_sec_crypto(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
 		goto out;
 	}
 recv_again:
-	ret = hisi_qm_recv_t(&priv->qp_ctx, (void **)&recv_msg);
+	ret = hisi_qm_recv(&priv->qp_ctx, (void **)&recv_msg);
 	if (ret == -EIO) {
 		WD_ERR("wd recv msg failed!\n");
 		goto out;
@@ -319,7 +324,7 @@ int hisi_digest_digest(struct wd_digest_sess *sess, struct wd_digest_arg *arg)
 
 	hisi_digest_create_request(sess, arg, &sqe);
 
-	hisi_qm_send_t(&sec_sess->qp_ctx, &sqe);
+	hisi_qm_send(&sec_sess->qp_ctx, &sqe);
 
 	type = sqe_recv.type_auth_cipher & SEC_TYPE_MASK;
 	/* error handle */
@@ -328,7 +333,7 @@ int hisi_digest_digest(struct wd_digest_sess *sess, struct wd_digest_arg *arg)
 	etype = sqe_recv.type2.error_type;
 
 	/* fix me: how to handle parall, some place we need a lock */
-	hisi_qm_recv_t(&sec_sess->qp_ctx, &sqe_recv);
+	hisi_qm_recv(&sec_sess->qp_ctx, (void **)&sqe_recv);
 	if (type == BD_TYPE2) {
 		if (done != SEC_HW_TASK_DONE || etype) {
 			WD_ERR("Digest fail! done=0x%x, etype=0x%x\n", done, etype);
