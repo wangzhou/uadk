@@ -14,7 +14,18 @@
 #define SEC_TYPE_MASK	      0x0f
 
 #define SEC_COMM_SCENE	      0
-#define SEC_SCENE_OFFSET      3
+#define SEC_SCENE_OFFSET	  3
+#define SEC_CMOME_OFFSET	  12
+#define SEC_CKEY_OFFSET		  9
+#define SEC_CIPHER_OFFSET	  4
+#define XTS_MODE_KEY_DIVISOR	  2
+
+#define DES_KEY_SIZE		  8
+#define SEC_3DES_2KEY_SIZE	  (2 * DES_KEY_SIZE)
+#define SEC_3DES_3KEY_SIZE	  (3 * DES_KEY_SIZE)
+#define AES_KEYSIZE_128		  16
+#define AES_KEYSIZE_192		  24
+#define AES_KEYSIZE_256		  32
 
 /* should be removed to qm module */
 struct hisi_qp_ctx_temp {
@@ -41,12 +52,6 @@ struct hisi_qp_ctx_temp *hisi_qm_alloc_qp_ctx_t(handle_t h_ctx)
 	return NULL;
 }
 
-void hisi_qm_free_ctx_t(struct hisi_qp_ctx_temp *qp_ctx)
-{
-
-}
-/* fix me end */
-
 /* session like request ctx */
 struct hisi_sec_sess {
 	struct hisi_qp_ctx_temp qp_ctx;
@@ -60,7 +65,7 @@ int hisi_sec_init(struct hisi_sec_sess *sec_sess)
 	int ret;
 	/* wd_request_ctx */
 	sec_sess->qp_ctx.h_ctx = wd_request_ctx(sec_sess->node_path);
-	
+
 	/* alloc_qp_ctx */
 	ret = hisi_qm_alloc_qp_ctx_t(sec_sess->qp_ctx.h_ctx);
 	if (ret)
@@ -104,10 +109,121 @@ int hisi_sec_set_key(struct hisi_sec_sess *sess, const __u8 *key, __u32 key_len)
 	return 0;
 }
 
-void hisi_cipher_create_request(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg,
+static int get_aes_c_key_len(struct wd_cipher_sess *sess, __u8 *c_key_len)
+{
+	struct hisi_sec_sess *sec_sess = (struct hisi_sec_sess *)sess->priv;
+	__u16 len;
+
+	len = sec_sess->key_bytes;
+
+	if (sess->mode == WD_CIPHER_XTS)
+		len = len / XTS_MODE_KEY_DIVISOR;
+
+	switch(len) {
+		case AES_KEYSIZE_128:
+			*c_key_len = CKEY_LEN_128BIT;
+			break;
+		case AES_KEYSIZE_192:
+			*c_key_len = CKEY_LEN_192BIT;
+			break;
+		case AES_KEYSIZE_256:
+			*c_key_len = CKEY_LEN_256BIT;
+			break;
+		default:
+			WD_ERR("Invalid AES key size!\n");
+			return -EINVAL;
+			break;
+	}
+
+	return 0;
+}
+
+static int get_3des_c_key_len(struct wd_cipher_sess *sess, __u8 *c_key_len)
+{
+	struct hisi_sec_sess *sec_sess = sess->priv;
+
+	if (sec_sess->key_bytes == SEC_3DES_2KEY_SIZE) {
+		*c_key_len = CKEY_LEN_3DES_2KEY;
+	} else if (sec_sess->key_bytes == SEC_3DES_3KEY_SIZE) {
+		*c_key_len = CKEY_LEN_3DES_3KEY;
+	} else {
+		WD_ERR("Invalid 3DES key size!\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int fill_cipher_bd2_alg(struct wd_cipher_sess *sess, struct hisi_sec_sqe *sqe)
+{
+	int ret = 0;
+	__u8 c_key_len = 0;
+
+	switch (sess->alg) {
+	case WD_CIPHER_SM4:
+		sqe->type2.c_alg = C_ALG_SM4;
+		sqe->type2.icvw_kmode = CKEY_LEN_SM4 << SEC_CKEY_OFFSET;
+		break;
+	case WD_CIPHER_AES:
+		sqe->type2.c_alg = C_ALG_AES;
+		ret = get_aes_c_key_len(sess, &c_key_len);
+		sqe->type2.icvw_kmode = (__u16)c_key_len << SEC_CKEY_OFFSET;
+		break;
+	case WD_CIPHER_DES:
+		sqe->type2.c_alg = C_ALG_DES;
+		sqe->type2.icvw_kmode = CKEY_LEN_DES;
+		break;
+	case WD_CIPHER_3DES:
+		sqe->type2.c_alg = C_ALG_3DES;
+		ret = get_3des_c_key_len(sess, &c_key_len);
+		sqe->type2.icvw_kmode = (__u16)c_key_len << SEC_CKEY_OFFSET;
+		break;
+	default:
+		WD_ERR("Invalid cipher type!\n");
+		return -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+
+static int hisi_cipher_create_request(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg,
 				struct hisi_sec_sqe *sqe)
 {
+	struct hisi_sec_sess *sec_sess = sess->priv;
+	__u8 scene, cipher;
+	__u8 de = 1;
+	int ret;
 
+	/* config BD type */
+	sqe->type_auth_cipher = BD_TYPE2;
+	/* config scence */
+	scene = SEC_COMM_SCENE << SEC_SCENE_OFFSET;
+	sqe->sds_sa_type = (de | scene);
+
+	sqe->type2.clen_ivhlen |= (__u32)arg->in_bytes;
+	sqe->type2.data_src_addr = (__u64)arg->src;
+
+	sqe->type2.data_dst_addr = (__u64)arg->dst;
+
+	sqe->type2.c_ivin_addr = (__u64)arg->iv;
+
+	ret = fill_cipher_bd2_alg(sess, sqe);
+	if (ret) {
+		WD_ERR("fill cipher bd2 alg failed!\n");
+		return ret;
+	}
+	//sqe->type2.c_alg = (__u8)sess->alg;
+	//sqe->type2.icvw_kmode |= (__u16)(sess->mode) << SEC_CMOME_OFFSET;
+	if (arg->op_type == WD_CIPHER_ENCRYPTION)
+		cipher = SEC_CIPHER_ENC << SEC_CIPHER_OFFSET;
+	else
+		cipher = SEC_CIPHER_DEC << SEC_CIPHER_OFFSET;
+
+	// config key
+	//sqe->type2.c_key_addr = (__u64)sec_sess->key;
+	//sqe->type2.icvw_kmode |= (__u16)(sec_sess->key_bytes) << SEC_CKEY_OFFSET;
+	return 0;
 }
 
 /* should define a struct to pass aead, cipher to this function */
@@ -120,7 +236,11 @@ int hisi_sec_crypto(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
 
 	priv = (struct hisi_sec_sess *)sess->priv;
 	//fill hisi sec sqe;
-	hisi_cipher_create_request(sess, arg, &msg);
+	ret = hisi_cipher_create_request(sess, arg, &msg);
+	if (ret) {
+		WD_ERR("fill cipher bd2 failed!\n");
+		return ret;
+	}
 
 	ret = hisi_qm_send(&priv->qp_ctx, &msg);
 	if (ret == -EBUSY) {

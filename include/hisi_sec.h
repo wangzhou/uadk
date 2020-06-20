@@ -50,10 +50,25 @@ enum C_MODE {
 	C_MODE_CBC_CS     = 0x9,
 };
 
+enum C_KEY_LEN {
+	CKEY_LEN_128BIT = 0x0,
+	CKEY_LEN_192BIT = 0x1,
+	CKEY_LEN_256BIT = 0x2,
+	CKEY_LEN_SM4    = 0x0,
+	CKEY_LEN_DES    = 0x1,
+	CKEY_LEN_3DES_3KEY = 0x1,
+	CKEY_LEN_3DES_2KEY = 0x3,
+};
+
 enum {
 	NO_AUTH,
 	AUTH_HMAC_CALCULATE,
 	AUTH_MAC_VERIFY,
+};
+
+enum sec_cipher_dir {
+	SEC_CIPHER_ENC = 0x1,
+	SEC_CIPHER_DEC = 0x2,
 };
 
 static int g_digest_a_alg[WD_DIGEST_TYPE_MAX] = {
