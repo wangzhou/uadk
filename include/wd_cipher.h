@@ -6,9 +6,9 @@
 #include "wd.h"
 #include "wd_alg_common.h"
 
-#define AES_KEYSIZE_128		16
-#define AES_KEYSIZE_192		24
-#define AES_KEYSIZE_256		32
+#define AES_KEYSIZE_128 16
+#define AES_KEYSIZE_192 24
+#define AES_KEYSIZE_256 32
 /**
  * wd_cipher_op_type - Algorithm type of option
  */
