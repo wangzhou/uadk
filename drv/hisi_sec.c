@@ -27,30 +27,6 @@
 #define AES_KEYSIZE_192		  24
 #define AES_KEYSIZE_256		  32
 
-/* should be removed to qm module */
-struct hisi_qp_ctx_temp {
-	handle_t h_ctx;
-	void *sq_base;
-	void *cq_base;
-	int sqe_size;
-	void *mmio_base;
-	void *db_base;
-	__u16 sq_tail_index;
-	__u16 sq_head_index;
-	__u16 cq_head_index;
-	__u16 sqn;
-	bool cqc_phase;
-	void *req_cache[QM_Q_DEPTH];
-	int is_sq_full;
-	int (*db)(struct hisi_qp_ctx_temp *qp_ctx, __u8 cmd, __u16 index,
-		  __u8 priority);
-};
-
-/* fix me: should be removed to qm module */
-struct hisi_qp_ctx_temp *hisi_qm_alloc_qp_ctx_t(handle_t h_ctx)
-{
-	return NULL;
-}
 
 /* session like request ctx */
 struct hisi_sec_sess {
