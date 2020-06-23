@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <stdbool.h>
+#include <pthread.h>
 #include "hisi_sec.h"
 
 #define SEC_DIGEST_ALG_OFFSET 11
@@ -27,42 +28,64 @@
 #define AES_KEYSIZE_192		  24
 #define AES_KEYSIZE_256		  32
 
+/* fix me */
+#define SEC_QP_NUM_PER_PROCESS		1
 
 /* session like request ctx */
 struct hisi_sec_sess {
-	struct hisi_qp qp;
+	struct hisi_qp *qp;
 	char *node_path;
 	void *key;
 	__u32 key_bytes;
 };
 
+struct hisi_qp_list {
+	struct hisi_qp *qp;
+	struct hisi_qp_list *next;
+};
+
+struct hisi_sec_qp_poll {
+	pthread_mutex_t qp_poll_lock;
+	struct hisi_qp_list head;
+} hisi_sec_qp_poll;
+
+static int get_qp_num_in_poll(void)
+{
+	return 0;
+}
+
+static void add_qp_to_poll(void)
+{
+}
+
+static hisi_qp *get_qp_in_poll(void)
+{
+}
+
+static int hisi_sec_alloc_qps(struct hisi_sec_sess *sec_sess, int num)
+{
+	return 0;
+}
+
 int hisi_sec_init(struct hisi_sec_sess *sec_sess)
 {
-	struct hisi_qp *qp = &sec_sess->qp;
-	int ret;
-	/* wd_request_ctx */
-	sec_sess->qp.h_ctx = wd_request_ctx(sec_sess->node_path);
+	struct hisi_qp *qp = sec_sess->qp;
+	handle_t h_ctx;
+	int ret, num;
 
-	/* alloc_qp_ctx */
-	ret = hisi_qm_alloc_qp_ctx(sec_sess->node_path, qp);
-	if (ret)
-		return ret;
+	num = get_qp_num_in_poll();
 
-	/* update qm private info: sqe_size, op_type */
+	if (num < SEC_QP_NUM_PER_PROCESS) {
+		h_ctx = hisi_qm_alloc_ctx(sec_sess->node_path, qp);
+		if (!h_ctx)
+			return -EINVAL;
 
-	/* update sec private info: something maybe */
-
-	ret = wd_ctx_start(sec_sess->qp.h_ctx);
-	if (ret) {
-		WD_ERR("ctx start failed!\n");
-		goto out_ctx;
+		add_qp_to_poll();
+	} else {
+		sec_sess->qp = get_qp_in_poll();
 	}
 
 	return 0;
-out_ctx:
-	hisi_qm_free_ctx(sec_sess->qp.h_ctx);
-
-	return ret;
 }
 
 void hisi_sec_exit(struct hisi_sec_sess *sec_sess)
