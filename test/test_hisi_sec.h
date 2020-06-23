@@ -30,5 +30,14 @@ struct cipher_testvec {
 	int len;
 }
 
-
+struct cipher_testvec aes_ecb_tv_template_128[] = {
+	{
+		.key = "\x00\x01\x02\x03\x04\x05\x06\x07"
+			"\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f",
+		.klen = 16,
+		.ptext = "\x00\x11\x22\x33\x44\x55\x66\x77"
+			"x88\x99\xaa\xbb\xcc\xdd\xee\xff",
+		.len = 16,
+	}	
+};
 #endif /* TEST_HISI_SEC_H_ */
