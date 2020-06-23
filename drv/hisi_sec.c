@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <stdbool.h>
+#include <pthread.h>
+#include "hisi_qm_udrv.h"
 #include "hisi_sec.h"
 
 #define SEC_DIGEST_ALG_OFFSET 11
@@ -27,54 +29,77 @@
 #define AES_KEYSIZE_192		  24
 #define AES_KEYSIZE_256		  32
 
+/* fix me */
+#define SEC_QP_NUM_PER_PROCESS		1
 
 /* session like request ctx */
 struct hisi_sec_sess {
-	struct hisi_qp qp;
+	struct hisi_qp *qp;
 	char *node_path;
 	void *key;
 	__u32 key_bytes;
 };
 
+struct hisi_qp_list {
+	struct hisi_qp *qp;
+	struct hisi_qp_list *next;
+};
+
+struct hisi_sec_qp_poll {
+	pthread_mutex_t qp_poll_lock;
+	struct hisi_qp_list head;
+} hisi_sec_qp_poll;
+
+static int get_qp_num_in_poll(void)
+{
+	return 0;
+}
+
+static void add_qp_to_poll(void)
+{
+}
+
+static struct hisi_qp *get_qp_in_poll(void)
+{
+	return NULL;
+}
+
+static int hisi_sec_alloc_qps(struct hisi_sec_sess *sec_sess, int num)
+{
+	return 0;
+}
+
 int hisi_sec_init(struct hisi_sec_sess *sec_sess)
 {
-	struct hisi_qp *qp = &sec_sess->qp;
-	int ret;
-	/* wd_request_ctx */
-	sec_sess->qp.h_ctx = wd_request_ctx(sec_sess->node_path);
+	struct hisi_qp *qp = sec_sess->qp;
+	handle_t h_ctx;
+	int num;
 
-	/* alloc_qp_ctx */
-	ret = hisi_qm_alloc_qp_ctx(sec_sess->node_path, qp);
-	if (ret)
-		return ret;
+	num = get_qp_num_in_poll();
 
-	/* update qm private info: sqe_size, op_type */
+	if (num < SEC_QP_NUM_PER_PROCESS) {
+		h_ctx = hisi_qm_alloc_ctx(sec_sess->node_path, qp);
+		if (!h_ctx)
+			return -EINVAL;
 
-	/* update sec private info: something maybe */
-
-	ret = wd_ctx_start(sec_sess->qp.h_ctx);
-	if (ret) {
-		WD_ERR("ctx start failed!\n");
-		goto out_ctx;
+		add_qp_to_poll();
+	} else {
+		sec_sess->qp = get_qp_in_poll();
 	}
 
 	return 0;
-out_ctx:
-	hisi_qm_free_ctx(sec_sess->qp.h_ctx);
-
-	return ret;
 }
 
 void hisi_sec_exit(struct hisi_sec_sess *sec_sess)
 {
 	/* wd_ctx_stop */
-	wd_ctx_stop(sec_sess->qp.h_ctx);
+	wd_ctx_stop(sec_sess->qp->h_ctx);
 
 	/* free alloc_qp_ctx */
-	hisi_qm_free_ctx(sec_sess->qp.h_ctx);
+	hisi_qm_free_ctx(sec_sess->qp->h_ctx);
 
 	/* wd_release_ctx */
-	wd_release_ctx(sec_sess->qp.h_ctx);
+	wd_release_ctx(sec_sess->qp->h_ctx);
 }
 
 int hisi_sec_set_key(struct hisi_sec_sess *sess, const __u8 *key, __u32 key_len)
@@ -219,7 +244,7 @@ int hisi_sec_crypto(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
 		return ret;
 	}
 
-	ret = hisi_qm_send(priv->qp.h_ctx, &msg);
+	ret = hisi_qm_send(priv->qp->h_ctx, &msg);
 	if (ret == -EBUSY) {
 		usleep(1);
 	}
@@ -228,7 +253,7 @@ int hisi_sec_crypto(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
 		goto out;
 	}
 recv_again:
-	ret = hisi_qm_recv(priv->qp.h_ctx, (void **)&recv_msg);
+	ret = hisi_qm_recv(priv->qp->h_ctx, (void **)&recv_msg);
 	if (ret == -EIO) {
 		WD_ERR("wd recv msg failed!\n");
 		goto out;
@@ -420,7 +445,7 @@ int hisi_digest_digest(struct wd_digest_sess *sess, struct wd_digest_arg *arg)
 
 	hisi_digest_create_request(sess, arg, &sqe);
 
-	hisi_qm_send(sec_sess->qp.h_ctx, &sqe);
+	hisi_qm_send(sec_sess->qp->h_ctx, &sqe);
 
 	type = sqe_recv.type_auth_cipher & SEC_TYPE_MASK;
 	/* error handle */
@@ -429,7 +454,7 @@ int hisi_digest_digest(struct wd_digest_sess *sess, struct wd_digest_arg *arg)
 	etype = sqe_recv.type2.error_type;
 
 	/* fix me: how to handle parall, some place we need a lock */
-	hisi_qm_recv(sec_sess->qp.h_ctx, (void **)&sqe_recv);
+	hisi_qm_recv(sec_sess->qp->h_ctx, (void **)&sqe_recv);
 	if (type == BD_TYPE2) {
 		if (done != SEC_HW_TASK_DONE || etype) {
 			WD_ERR("Digest fail! done=0x%x, etype=0x%x\n", done, etype);
