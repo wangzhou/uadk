@@ -32,9 +32,55 @@
 /* fix me */
 #define SEC_QP_NUM_PER_PROCESS		1
 
+/* should be remove to qm module */
+struct hisi_qp_req {
+	void (*callback)(void *parm);
+};
+
+struct hisi_qp_task_pool {
+	pthread_mutex_t task_pool_lock;
+	struct hisi_qp_req *queue;
+	__u32 tail;
+	__u32 head;
+	__u32 depth;
+};
+
+struct hisi_qp_async {
+	struct hisi_qp_task_pool task_pool;
+	struct hisi_qp *qp;
+};
+
+static struct hisi_qp_async *hisi_qm_alloc_qp_async(char *node_path)
+{
+	return NULL;
+}
+
+static void hisi_qm_free_qp_async(struct hisi_qp_async *qp)
+{
+}
+
+static int hisi_qm_send_async(struct hisi_qp_async *qp, void *req,
+			      void (*callback)(void *parm))
+{
+	/* store req callback in task pool */
+
+	/* send request */
+
+	return 0;
+}
+
+static void hisi_qm_poll_async_qp(struct hisi_qp_async *qp, int num)
+{
+	/* hisi_qm_recv */
+
+	/* find related task in task pool and call its cb */
+}
+/* end qm demo */
+
 /* session like request ctx */
 struct hisi_sec_sess {
 	struct hisi_qp *qp;
+	struct hisi_qp_async *qp_async;
 	char *node_path;
 	void *key;
 	__u32 key_bytes;
@@ -54,7 +100,7 @@ static int get_qp_num_in_poll(void)
 {
 	return 0;
 }
-
+ 
 static void add_qp_to_poll(void)
 {
 }
