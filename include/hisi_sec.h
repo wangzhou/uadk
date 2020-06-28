@@ -88,7 +88,7 @@ extern void hisi_cipher_fini(struct wd_cipher_sess *sess);
 extern int hisi_cipher_set_key(struct wd_cipher_sess *sess, const __u8 *key, __u32 key_len);
 extern int hisi_cipher_encrypt(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg);
 extern int hisi_cipher_decrypt(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg);
-extern int hisi_cipher_poll(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg);
+extern int hisi_cipher_poll(struct wd_cipher_sess *sess, __u32 count);
 
 extern int hisi_digest_init(struct wd_digest_sess *sess);
 extern void hisi_digest_exit(struct wd_digest_sess *sess);

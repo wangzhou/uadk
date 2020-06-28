@@ -69,7 +69,7 @@ static int hisi_qm_send_async(struct hisi_qp_async *qp, void *req,
 	return 0;
 }
 
-static void hisi_qm_poll_async_qp(struct hisi_qp_async *qp, int num)
+static void hisi_qm_poll_async_qp(struct hisi_qp_async *qp, __u32 num)
 {
 	/* hisi_qm_recv */
 
@@ -86,22 +86,23 @@ struct hisi_sec_sess {
 	__u32 key_bytes;
 };
 
-struct hisi_qp_list {
-	struct hisi_qp *qp;
-	struct hisi_qp_list *next;
+struct hisi_qp_async_list {
+	struct hisi_qp_async *qp;
+	struct hisi_qp_async_list *next;
 };
 
-struct hisi_sec_qp_poll {
-	pthread_mutex_t qp_poll_lock;
-	struct hisi_qp_list head;
-} hisi_sec_qp_poll;
+struct hisi_sec_qp_async_pool {
+	pthread_mutex_t lock;
+	struct hisi_qp_async_list head;
+} hisi_sec_qp_async_pool;
 
-static int get_qp_num_in_poll(void)
+static int get_qp_num_in_pool(void)
 {
 	return 0;
 }
  
-static void add_qp_to_poll(void)
+static void hisi_sec_add_qp_to_pool(struct hisi_sec_qp_async_pool *pool,
+				    struct hisi_qp_async *qp)
 {
 }
 
@@ -118,17 +119,28 @@ static int hisi_sec_alloc_qps(struct hisi_sec_sess *sec_sess, int num)
 int hisi_sec_init(struct hisi_sec_sess *sec_sess)
 {
 	struct hisi_qp *qp = sec_sess->qp;
+	struct hisi_qp_async *qp_async;
 	handle_t h_ctx;
 	int num;
+	/* fix me: should have a flag in sec_sess to indicate sync or async qp */
+	int qp_type = 0;
 
-	num = get_qp_num_in_poll();
+	num = get_qp_num_in_pool();
 
 	if (num < SEC_QP_NUM_PER_PROCESS) {
-		h_ctx = hisi_qm_alloc_ctx(sec_sess->node_path, qp);
-		if (!h_ctx)
-			return -EINVAL;
+		if (!qp_type) {
+			h_ctx = hisi_qm_alloc_ctx(sec_sess->node_path, qp);
+			if (!h_ctx)
+				return -EINVAL;
+		} else {
+			qp_async = hisi_qm_alloc_qp_async(sec_sess->node_path);
+			if (!qp_async)
+				return -EINVAL;
 
-		add_qp_to_poll();
+			hisi_sec_add_qp_to_pool(&hisi_sec_qp_async_pool,
+						qp_async);
+		}
+
 	} else {
 		sec_sess->qp = get_qp_in_poll();
 	}
@@ -390,8 +402,14 @@ int hisi_cipher_decrypt(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
 	return hisi_sec_decrypt(sess, arg);
 }
 
-int hisi_cipher_poll(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
+int hisi_cipher_poll(struct wd_cipher_sess *sess, __u32 count)
 {
+	struct hisi_qp_async *qp;
+
+	/* iterate async qp in hisi_sec_qp_async_pool */
+
+	hisi_qm_poll_async_qp(qp, count);
+
 	return 0;
 }
 

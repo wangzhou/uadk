@@ -21,8 +21,7 @@ struct wd_alg_cipher {
 			   struct wd_cipher_arg *arg);
 	int	(*decrypt)(struct wd_cipher_sess *sess,
 			   struct wd_cipher_arg *arg);
-	int	(*async_poll)(struct wd_cipher_sess *sess,
-			      struct wd_cipher_arg *arg);
+	int	(*async_poll)(struct wd_cipher_sess *sess, __u32 count);
 }
 
 wd_alg_cipher_list[] = {
@@ -263,5 +262,7 @@ int wd_alg_set_key(handle_t handle, __u8 *key, __u32 key_len)
 
 int wd_alg_cipher_poll(handle_t handle, __u32 count)
 {
-	return 0;
+	struct wd_cipher_sess *sess = (struct wd_cipher_sess *)handle;
+
+	return sess->drv->async_poll(sess, count);;
 }
