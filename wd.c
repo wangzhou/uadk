@@ -561,15 +561,6 @@ void wd_ctx_init_qfrs_offs(handle_t h_ctx)
 	       sizeof(ctx->qfrs_offs));
 }
 
-int wd_ctx_get_fd(handle_t h_ctx)
-{
-	struct wd_ctx	*ctx = (struct wd_ctx *)h_ctx;
-
-	if (!ctx)
-		return -EINVAL;
-	return ctx->fd;
-}
-
 char *wd_ctx_get_api(handle_t h_ctx)
 {
 	struct wd_ctx	*ctx = (struct wd_ctx *)h_ctx;
@@ -577,6 +568,15 @@ char *wd_ctx_get_api(handle_t h_ctx)
 	if (!ctx)
 		return NULL;
 	return ctx->dev_info->api;
+}
+
+int wd_ctx_set_io_cmd(handle_t h_ctx, unsigned long cmd, void *arg)
+{
+	struct wd_ctx	*ctx = (struct wd_ctx *)h_ctx;
+
+	if (!ctx)
+		return -EINVAL;
+	return ioctl(ctx->fd, cmd, arg);
 }
 
 int wd_wait(handle_t h_ctx, __u16 ms)

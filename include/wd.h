@@ -123,7 +123,7 @@ extern void wd_ctx_init_qfrs_offs(handle_t h_ctx);
 extern char *wd_ctx_get_api(handle_t h_ctx);
 extern void *wd_ctx_get_shared_va(handle_t h_ctx);
 extern int wd_ctx_set_shared_va(handle_t h_ctx, void *shared_va);
-extern int wd_ctx_get_fd(handle_t h_ctx);
+extern int wd_ctx_set_io_cmd(handle_t h_ctx, unsigned long cmd, void *arg);
 
 extern void *wd_drv_mmap_qfr(handle_t h_ctx, enum uacce_qfrt qfrt,
 			     size_t size);

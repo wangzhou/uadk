@@ -103,7 +103,7 @@ static handle_t alloc_ctx(char *node_path,
 {
 	struct hisi_qp_ctx		qp_ctx;
 	struct hisi_qm_queue_info	*q_info;
-	int	i, size, fd, ret;
+	int	i, size, ret;
 	char	*api_name;
 
 	if (qm_priv->sqe_size <= 0) {
@@ -155,8 +155,7 @@ static handle_t alloc_ctx(char *node_path,
 	q_info->is_sq_full = 0;
 	memset(&qp_ctx, 0, sizeof(struct hisi_qp_ctx));
 	qp_ctx.qc_type = qm_priv->op_type;
-	fd = wd_ctx_get_fd(qp->h_ctx);
-	ret = ioctl(fd, UACCE_CMD_QM_SET_QP_CTX, &qp_ctx);
+	ret = wd_ctx_set_io_cmd(qp->h_ctx, UACCE_CMD_QM_SET_QP_CTX, &qp_ctx);
 	if (ret < 0) {
 		WD_ERR("HISI QM fail to set qc_type, use default value\n");
 		goto out_qm;
