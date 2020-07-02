@@ -137,6 +137,7 @@ extern void *wd_get_dma_from_va(handle_t h_ctx, void *va);
 extern int wd_get_accel_mask(char *alg_name, wd_dev_mask_t *dev_mask);
 
 extern struct uacce_dev_list *wd_list_accels(wd_dev_mask_t *dev_mask);
+extern void wd_free_list_accels(struct uacce_dev_list *list);
 extern char *wd_get_accel_name(char *node_path, int no_apdx);
 extern int wd_clear_mask(wd_dev_mask_t *dev_mask, int idx);
 

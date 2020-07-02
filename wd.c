@@ -369,6 +369,19 @@ out:
 	return NULL;
 }
 
+void wd_free_list_accels(struct uacce_dev_list *list)
+{
+	struct uacce_dev_list	*node;
+
+	while (list) {
+		node = list;
+		list = list->next;
+		if (node->info)
+			free(node->info);
+		free(node);
+	}
+}
+
 int wd_get_accel_mask(char *alg_name, wd_dev_mask_t *dev_mask)
 {
 	struct uacce_dev_list	*head;
