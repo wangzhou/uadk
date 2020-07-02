@@ -15,9 +15,6 @@
 #include "hisi_qm_udrv.h"
 #include "wd.h"
 
-#define QM_SQE_SIZE		128 /* TODO: get it from sysfs */
-#define QM_CQE_SIZE		16
-
 #define DOORBELL_CMD_SQ		0
 #define DOORBELL_CMD_CQ		1
 
@@ -32,6 +29,14 @@ struct hisi_qm_type {
 	int	(*hacc_db)(struct hisi_qm_queue_info *q, __u8 cmd,
 			   __u16 index, __u8 prority);
 };
+
+struct hisi_qp_pool_type {
+	char				*acc_name;
+	struct hisi_qp			*qp;
+	struct hisi_qp_pool_type	*next;
+};
+
+static struct hisi_qp_pool_type	*qp_pool = NULL;
 
 static int hacc_db_v1(struct hisi_qm_queue_info *q, __u8 cmd,
 		      __u16 index, __u8 priority)
@@ -78,7 +83,6 @@ static int hisi_qm_fill_sqe(void *sqe, struct hisi_qm_queue_info *info, __u16 i)
 
 	assert(!info->req_cache[i]);
 	info->req_cache[i] = sqe;
-
 	return 0;
 }
 
@@ -92,19 +96,18 @@ static int hisi_qm_recv_sqe(void *sqe,
 	return 0;
 }
 
-handle_t hisi_qm_alloc_ctx(char *node_path, void *data)
+/* data is struct hisi_qp */
+static handle_t alloc_ctx(char *node_path,
+			  struct hisi_qm_priv *qm_priv,
+			  struct hisi_qp *qp)
 {
-	struct hisi_qp			*qp = (struct hisi_qp *)data;
 	struct hisi_qp_ctx		qp_ctx;
-	struct hisi_qm_capa		*capa = &qp->capa;
-	struct hisi_qm_priv		*capa_priv;
 	struct hisi_qm_queue_info	*q_info;
 	int	i, size, fd, ret;
 	char	*api_name;
 
-	capa_priv = (struct hisi_qm_priv *)capa->priv;
-	if (capa_priv->sqe_size <= 0) {
-		WD_ERR("invalid sqe size (%d)\n", capa_priv->sqe_size);
+	if (qm_priv->sqe_size <= 0) {
+		WD_ERR("invalid sqe size (%d)\n", qm_priv->sqe_size);
 		goto out;
 	}
 
@@ -121,8 +124,8 @@ handle_t hisi_qm_alloc_ctx(char *node_path, void *data)
 		ret = -errno;
 		goto out_mmap;
 	}
-	q_info->sqe_size = capa_priv->sqe_size;
-	q_info->cq_base = q_info->sq_base + capa_priv->sqe_size * QM_Q_DEPTH;
+	q_info->sqe_size = qm_priv->sqe_size;
+	q_info->cq_base = q_info->sq_base + qm_priv->sqe_size * QM_Q_DEPTH;
 
 	q_info->mmio_base = wd_drv_mmap_qfr(qp->h_ctx, UACCE_QFRT_MMIO, 0);
 	if (q_info->mmio_base == MAP_FAILED) {
@@ -151,7 +154,7 @@ handle_t hisi_qm_alloc_ctx(char *node_path, void *data)
 	q_info->cqc_phase = 1;
 	q_info->is_sq_full = 0;
 	memset(&qp_ctx, 0, sizeof(struct hisi_qp_ctx));
-	qp_ctx.qc_type = capa_priv->op_type;
+	qp_ctx.qc_type = qm_priv->op_type;
 	fd = wd_ctx_get_fd(qp->h_ctx);
 	ret = ioctl(fd, UACCE_CMD_QM_SET_QP_CTX, &qp_ctx);
 	if (ret < 0) {
@@ -164,6 +167,7 @@ handle_t hisi_qm_alloc_ctx(char *node_path, void *data)
 	if (ret)
 		goto out_qm;
 	wd_ctx_set_sess_priv(qp->h_ctx, qp);
+	qp->cnt = 1;
 	return qp->h_ctx;
 
 out_qm:
@@ -176,13 +180,67 @@ out:
 	return (handle_t)NULL;
 }
 
-void hisi_qm_free_ctx(handle_t h_ctx)
+handle_t hisi_qm_alloc_ctx(char *node_path, void *priv, void **data)
 {
-	struct hisi_qp			*qp;
+	struct hisi_qp_pool_type *p = NULL;
+	struct hisi_qm_priv *qm_priv = (struct hisi_qm_priv *)priv;
+	handle_t h_ctx;
+	int alloced = 0;
+
+	if (qp_pool) {
+		p = qp_pool;
+		while (strncmp(p->acc_name, node_path, strlen(node_path))) {
+			/* not matched */
+			if (!p->next) {
+				p->next = calloc(1, sizeof(*p));
+				if (!p->next)
+					goto out;
+				p->next->acc_name = strdup(node_path);
+				p->next->qp = calloc(1, sizeof(struct hisi_qp));
+				if (!p->next->qp) {
+					free(p->next->acc_name);
+					free(p->next);
+					goto out;
+				}
+				*data = p->next->qp;
+				p->next->next = NULL;
+				h_ctx = alloc_ctx(node_path, qm_priv, p->next->qp);
+				alloced = 1;
+			}
+			p = p->next;
+		}
+		if (!alloced) {
+			/* reference the allocated qp */
+			h_ctx = p->qp->h_ctx;
+			p->qp->cnt++;
+			*data = p->qp;
+		}
+	} else {
+		/* This first entry in the qp_pool. */
+		qp_pool = calloc(1, sizeof(struct hisi_qp_pool_type));
+		if (!qp_pool)
+			goto out;
+		qp_pool->acc_name = strdup(node_path);
+		qp_pool->qp = calloc(1, sizeof(struct hisi_qp));
+		if (!qp_pool->qp) {
+			free(qp_pool->acc_name);
+			free(qp_pool);
+			goto out;
+		}
+		*data = qp_pool->qp;
+		qp_pool->next = NULL;
+		h_ctx = alloc_ctx(node_path, qm_priv, qp_pool->qp);
+	}
+	return h_ctx;
+out:
+	return (handle_t)NULL;
+}
+
+static void free_ctx(struct hisi_qp *qp)
+{
 	struct hisi_qm_queue_info	*q_info;
 	void	*va;
 
-	qp = (struct hisi_qp *)wd_ctx_get_sess_priv(h_ctx);
 	q_info = &qp->q_info;
 
 	wd_ctx_stop(qp->h_ctx);
@@ -196,19 +254,62 @@ void hisi_qm_free_ctx(handle_t h_ctx)
 	wd_release_ctx(qp->h_ctx);
 }
 
-int hisi_qm_send(handle_t h_ctx, void *req)
+void hisi_qm_free_ctx(handle_t h_ctx)
 {
-	struct hisi_qp			*qp;
-	struct hisi_qm_queue_info	*q_info;
-	__u16 i;
+	struct hisi_qp *qp;
+	struct hisi_qp_pool_type *p, *tmp;
 
 	qp = (struct hisi_qp *)wd_ctx_get_sess_priv(h_ctx);
-	if (!qp)
-		return -EINVAL;
+	if (qp->cnt <= 0)
+		goto out;
+	else if (qp->cnt > 1)
+		qp->cnt--;
+	else {
+		if (!qp_pool)
+			goto out;
+		if (qp_pool->qp->h_ctx == qp->h_ctx) {
+			p = qp_pool;
+			qp_pool = qp_pool->next;
+		} else {
+			p = qp_pool;
+			while (p->next) {
+				if (p->next->qp->h_ctx == qp->h_ctx) {
+					tmp = p->next;
+					p->next = tmp->next;
+					p = tmp;
+					break;
+				} else
+					p = p->next;
+			}
+		}
+		if (p) {
+			free_ctx(p->qp);
+			free(p->acc_name);
+			free(p->qp);
+		}
+	}
+out:
+	return;
+}
+
+int hisi_qm_send(handle_t h_ctx, void *req)
+{
+	struct hisi_qp *qp;
+	struct hisi_qm_queue_info *q_info;
+	__u16 i;
+	int ret = 0;
+
+	qp = (struct hisi_qp *)wd_ctx_get_sess_priv(h_ctx);
+	if (!qp) {
+		ret = -EINVAL;
+		goto out;
+	}
+
 	q_info = &qp->q_info;
 	if (q_info->is_sq_full) {
 		WD_ERR("queue is full!\n");
-		return -EBUSY;
+		ret = -EBUSY;
+		goto out;
 	}
 
 	i = q_info->sq_tail_index;
@@ -227,7 +328,8 @@ int hisi_qm_send(handle_t h_ctx, void *req)
 	if (i == q_info->sq_head_index)
 		q_info->is_sq_full = 1;
 
-	return 0;
+out:
+	return ret;
 }
 
 int hisi_qm_recv(handle_t h_ctx, void **resp)
@@ -239,6 +341,10 @@ int hisi_qm_recv(handle_t h_ctx, void **resp)
 	struct cqe *cqe;
 
 	qp = (struct hisi_qp *)wd_ctx_get_sess_priv(h_ctx);
+	if (!qp) {
+		ret = -EINVAL;
+		goto out;
+	}
 	q_info = &qp->q_info;
 	i = q_info->cq_head_index;
 	cqe = q_info->cq_base + i * sizeof(struct cqe);
@@ -248,7 +354,8 @@ int hisi_qm_recv(handle_t h_ctx, void **resp)
 		if (j >= QM_Q_DEPTH) {
 			WD_ERR("CQE_SQ_HEAD_INDEX(%d) error\n", j);
 			errno = -EIO;
-			return -EIO;
+			ret = -EIO;
+			goto out;
 		}
 
 		ret = hisi_qm_recv_sqe(q_info->sq_base + j * q_info->sqe_size,
@@ -256,13 +363,16 @@ int hisi_qm_recv(handle_t h_ctx, void **resp)
 		if (ret < 0) {
 			WD_ERR("recv sqe error %d\n", j);
 			errno = -EIO;
-			return -EIO;
+			ret = -EIO;
+			goto out;
 		}
 
 		if (q_info->is_sq_full)
 			q_info->is_sq_full = 0;
-	} else
-		return -EAGAIN;
+	} else {
+		ret = -EAGAIN;
+		goto out;
+	}
 
 	*resp = q_info->req_cache[i];
 	q_info->req_cache[i] = NULL;
@@ -278,5 +388,6 @@ int hisi_qm_recv(handle_t h_ctx, void **resp)
 	q_info->cq_head_index = i;
 	q_info->sq_head_index = i;
 
+out:
 	return ret;
 }
