@@ -26,6 +26,7 @@
 typedef struct _thread_data_t {
 	int	tid;
 	int	flag;
+	int	mode;
 	struct wd_comp_arg	wd_arg;
 } thread_data_t;
 
@@ -968,7 +969,7 @@ void *thread_func(void *arg)
 		sprintf(algs, "gzip");
 	src = wd_arg->src;
 	dst = wd_arg->dst;
-	handle = wd_alg_comp_alloc_sess(algs, MODE_STREAM, NULL);
+	handle = wd_alg_comp_alloc_sess(algs, data->mode & MODE_STREAM, NULL);
 	wd_arg->flag = FLAG_INPUT_FINISH | FLAG_DEFLATE;
 	ret = wd_alg_compress(handle, wd_arg);
 	if (ret) {
@@ -986,7 +987,7 @@ void *thread_func(void *arg)
 	wd_arg->dst_len = TEST_WORD_LEN;
 	wd_arg->flag = FLAG_INPUT_FINISH & ~FLAG_DEFLATE;
 
-	handle = wd_alg_comp_alloc_sess(algs, MODE_STREAM, NULL);
+	handle = wd_alg_comp_alloc_sess(algs, data->mode & MODE_STREAM, NULL);
 	ret = wd_alg_decompress(handle, wd_arg);
 	if (ret) {
 		printf("fail to decompress (%d)\n", ret);
@@ -1000,7 +1001,7 @@ void *thread_func(void *arg)
 	pthread_exit(NULL);
 }
 
-int test_concurrent(int flag)
+int test_concurrent(int flag, int mode)
 {
 	pthread_t thread[NUM_THREADS];
 	thread_data_t thread_data[NUM_THREADS];
@@ -1010,6 +1011,7 @@ int test_concurrent(int flag)
 	for (i = 0; i < NUM_THREADS; i++) {
 		thread_data[i].tid = i;
 		thread_data[i].flag = flag;
+		thread_data[i].mode = mode;
 		arg = &thread_data[i].wd_arg;
 		memset(arg, 0, sizeof(struct wd_comp_arg));
 		arg->src_len = strlen(word) + 1;
@@ -1074,18 +1076,32 @@ int main(int argc, char **argv)
 	test_strm_rand_buffer(FLAG_ZLIB);
 	test_strm_rand_buffer(FLAG_GZIP);
 	thread_fail = 0;
-	test_concurrent(FLAG_ZLIB);
+	test_concurrent(FLAG_ZLIB, 0);
 	if (thread_fail)
-		printf("fail to run ZLIB cases concurrently\n");
+		printf("fail to run ZLIB cases in BLOCK mode concurrently\n");
 	else
-		printf("Pass concurrent case for ZLIB.\n");
+		printf("Pass concurrent case for ZLIB in BLOCK mode.\n");
 	usleep(100);
 	thread_fail = 0;
-	test_concurrent(FLAG_GZIP);
+	test_concurrent(FLAG_GZIP, 0);
 	if (thread_fail)
-		printf("fail to run GZIP cases concurrently\n");
+		printf("fail to run GZIP cases in BLOCK mode concurrently\n");
 	else
-		printf("Pass concurrent case for GZIP.\n");
+		printf("Pass concurrent case for GZIP in BLOCK mode.\n");
+	usleep(100);
+	thread_fail = 0;
+	test_concurrent(FLAG_ZLIB, MODE_STREAM);
+	if (thread_fail)
+		printf("fail to run ZLIB cases in STREAM mode concurrently\n");
+	else
+		printf("Pass concurrent case for ZLIB in STREAM mode.\n");
+	usleep(100);
+	thread_fail = 0;
+	test_concurrent(FLAG_GZIP, MODE_STREAM);
+	if (thread_fail)
+		printf("fail to run GZIP cases in STREAM mode concurrently\n");
+	else
+		printf("Pass concurrent case for GZIP in STREAM mode.\n");
 	usleep(100);
 	return 0;
 }
