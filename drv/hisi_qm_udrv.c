@@ -166,7 +166,7 @@ static handle_t alloc_ctx(char *node_path,
 	ret = wd_ctx_start(qp->h_ctx);
 	if (ret)
 		goto out_qm;
-	wd_ctx_set_sess_priv(qp->h_ctx, qp);
+	wd_ctx_set_priv(qp->h_ctx, qp);
 	qp->cnt = 1;
 	return qp->h_ctx;
 
@@ -259,7 +259,7 @@ void hisi_qm_free_ctx(handle_t h_ctx)
 	struct hisi_qp *qp;
 	struct hisi_qp_pool_type *p, *tmp;
 
-	qp = (struct hisi_qp *)wd_ctx_get_sess_priv(h_ctx);
+	qp = (struct hisi_qp *)wd_ctx_get_priv(h_ctx);
 	if (qp->cnt <= 0)
 		goto out;
 	else if (qp->cnt > 1)
@@ -299,7 +299,7 @@ int hisi_qm_send(handle_t h_ctx, void *req)
 	__u16 i;
 	int ret = 0;
 
-	qp = (struct hisi_qp *)wd_ctx_get_sess_priv(h_ctx);
+	qp = (struct hisi_qp *)wd_ctx_get_priv(h_ctx);
 	if (!qp) {
 		ret = -EINVAL;
 		goto out;
@@ -340,7 +340,7 @@ int hisi_qm_recv(handle_t h_ctx, void **resp)
 	int ret;
 	struct cqe *cqe;
 
-	qp = (struct hisi_qp *)wd_ctx_get_sess_priv(h_ctx);
+	qp = (struct hisi_qp *)wd_ctx_get_priv(h_ctx);
 	if (!qp) {
 		ret = -EINVAL;
 		goto out;
