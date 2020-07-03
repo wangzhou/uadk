@@ -30,8 +30,8 @@
 #define AES_KEYSIZE_256		  32
 
 /* fix me */
-#define SEC_QP_NUM_PER_PROCESS		1
-
+#define SEC_QP_NUM_PER_PROCESS	  1
+#define MAX_CIPHER_RETRY_CNT	  20000000
 /* should be remove to qm module */
 struct hisi_qp_req {
 	void (*callback)(void *parm);
@@ -292,6 +292,7 @@ int hisi_sec_crypto(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
 	struct hisi_sec_sess *priv;
 	struct hisi_sec_sqe msg = {0};
 	struct hisi_sec_sqe recv_msg = {0};
+	__u64 recv_count = 0;
 	int ret;
 
 	priv = (struct hisi_sec_sess *)sess->priv;
@@ -308,19 +309,27 @@ int hisi_sec_crypto(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
 	}
 	if (ret) {
 		WD_ERR("send failed (%d)\n", ret);
-		goto out;
+		return ret;
 	}
-recv_again:
-	ret = hisi_qm_recv(priv->qp->h_ctx, (void **)&recv_msg);
-	if (ret == -EIO) {
-		WD_ERR("wd recv msg failed!\n");
-		goto out;
-	} else if (ret == -EAGAIN)
-		goto recv_again;
+	while(true) {
+		ret = hisi_qm_recv(priv->qp->h_ctx, (void **)&recv_msg);
+		if (ret == -EIO) {
+			WD_ERR("wd recv msg failed!\n");
+			break;
+		} else if (ret == -EAGAIN) {
+			if (++recv_count > MAX_CIPHER_RETRY_CNT) {
+				WD_ERR("%s:sec recv timeout fail!\n", __func__);
+				ret = -ETIMEDOUT;
+				break;
+			}
+		} else {
+			// recive output_msg;
+			break;
+		}
+	}
 
-	return 0;
-out:
 	return ret;
+
 }
 
 int hisi_sec_encrypt(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
