@@ -411,7 +411,7 @@ static int hisi_sched_output(struct wd_msg *msg, void *priv)
 	return 0;
 }
 
-static int hisi_comp_block_init(struct wd_comp_sess *sess)
+static int hisi_comp_sched_init(struct wd_comp_sess *sess)
 {
 	struct hisi_comp_sess	*priv;
 	struct wd_scheduler	*sched;
@@ -473,7 +473,7 @@ out_priv:
 	return ret;
 }
 
-static int hisi_comp_block_prep(struct wd_comp_sess *sess,
+static int hisi_comp_sched_prep(struct wd_comp_sess *sess,
 				 struct wd_comp_arg *arg)
 {
 	struct hisi_comp_sess	*priv;
@@ -598,7 +598,7 @@ out_hw:
 	return ret;
 }
 
-static void hisi_comp_block_exit(struct wd_comp_sess *sess)
+static void hisi_comp_sched_exit(struct wd_comp_sess *sess)
 {
 	struct hisi_comp_sess	*priv;
 	struct wd_scheduler	*sched;
@@ -639,7 +639,7 @@ static void hisi_comp_block_exit(struct wd_comp_sess *sess)
 	free(sched->qs);
 }
 
-static int hisi_comp_block_deflate(struct wd_comp_sess *sess,
+static int hisi_comp_sched_deflate(struct wd_comp_sess *sess,
 				    struct wd_comp_arg *arg)
 {
 	struct hisi_comp_sess	*priv;
@@ -671,7 +671,7 @@ static int hisi_comp_block_deflate(struct wd_comp_sess *sess,
 	return 0;
 }
 
-static int hisi_comp_block_inflate(struct wd_comp_sess *sess,
+static int hisi_comp_sched_inflate(struct wd_comp_sess *sess,
 				    struct wd_comp_arg *arg)
 {
 	struct hisi_comp_sess	*priv;
@@ -1188,7 +1188,7 @@ int hisi_comp_init(struct wd_comp_sess *sess)
 	if (sess->mode & MODE_STREAM)
 		hisi_comp_strm_init(sess);
 	else
-		hisi_comp_block_init(sess);
+		hisi_comp_sched_init(sess);
 	return 0;
 }
 
@@ -1197,7 +1197,7 @@ void hisi_comp_exit(struct wd_comp_sess *sess)
 	if (sess->mode & MODE_STREAM) {
 		hisi_comp_strm_exit(sess);
 	} else {
-		hisi_comp_block_exit(sess);
+		hisi_comp_sched_exit(sess);
 	}
 	free(sess->priv);
 	sess->priv = NULL;
@@ -1213,7 +1213,7 @@ int hisi_comp_prep(struct wd_comp_sess *sess, struct wd_comp_arg *arg)
 	if (sess->mode & MODE_STREAM)
 		ret = hisi_comp_strm_prep(sess, arg);
 	else
-		ret = hisi_comp_block_prep(sess, arg);
+		ret = hisi_comp_sched_prep(sess, arg);
 	if (!ret)
 		priv->inited = 1;
 	return ret;
@@ -1226,7 +1226,7 @@ int hisi_comp_deflate(struct wd_comp_sess *sess, struct wd_comp_arg *arg)
 	if (sess->mode & MODE_STREAM)
 		ret = hisi_comp_strm_deflate(sess, arg);
 	else
-		ret = hisi_comp_block_deflate(sess, arg);
+		ret = hisi_comp_sched_deflate(sess, arg);
 	return ret;
 }
 
@@ -1237,7 +1237,7 @@ int hisi_comp_inflate(struct wd_comp_sess *sess, struct wd_comp_arg *arg)
 	if (sess->mode & MODE_STREAM)
 		ret = hisi_comp_strm_inflate(sess, arg);
 	else
-		ret = hisi_comp_block_inflate(sess, arg);
+		ret = hisi_comp_sched_inflate(sess, arg);
 	return ret;
 }
 
