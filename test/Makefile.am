@@ -14,7 +14,8 @@ test_hisi_zip_LDADD=../.libs/libwd.a ../.libs/libhisi_qm.a
 test_hisi_zlib_LDADD=../.libs/libwd.a ../.libs/libhisi_qm.a
 test_sva_perf_LDADD=../.libs/libwd.a ../.libs/libhisi_qm.a
 test_sva_bind_LDADD=../.libs/libwd.a ../.libs/libhisi_qm.a
-test_hisi_sec_LDADD=../.libs/libwd.a ../.libs/libhisi_qm.a
+test_hisi_sec_LDADD=../.libs/libwd.a ../.libs/libwd_cipher.a \
+		    ../.libs/libhisi_qm.a
 
 # For statistics
 test_sva_perf_LDADD+=-lm
