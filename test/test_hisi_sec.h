@@ -22,13 +22,13 @@ enum cipher_mode {
 struct cipher_testvec {
 	const char *key;
 	int klen;
-	const chat *iv;
+	const char *iv;
 	int ivlen;
 	const char *iv_out;
 	const char *ptext;
 	const char *ctext;
 	int len;
-}
+};
 
 struct cipher_testvec aes_ecb_tv_template_128[] = {
 	{
