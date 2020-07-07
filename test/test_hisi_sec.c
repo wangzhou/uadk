@@ -11,6 +11,18 @@
 #define BUFF_SIZE 1024
 #define IV_SIZE   256
 
+static void hexdump(char *buff, unsigned int len)
+{
+	unsigned int i;
+
+	for (i = 0; i < len; i++) {
+		printf("\\0x%x", i, buff[i]);
+		if ((i + 1) % 8 == 0)
+			printf("\n");
+	}
+	printf("\n");
+}
+
 static int test_sec(int flag)
 {
 	struct cipher_testvec *tv = &aes_ecb_tv_template_128;
