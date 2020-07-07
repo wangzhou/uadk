@@ -26,7 +26,7 @@ struct wd_alg_cipher {
 
 wd_alg_cipher_list[] = {
 	{
-		.drv_name	= "hisi_sec",
+		.drv_name	= "hisi_sec2",
 		.alg_name	= "cipher",
 		.init		= hisi_cipher_init,
 		.exit		= hisi_cipher_exit,
@@ -145,8 +145,6 @@ out:
 		free(p);
 	}
 	return (handle_t)sess;
-
-	return 0;
 }
 
 void wd_alg_cipher_free_sess(handle_t handle)
