@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <stdbool.h>
 #include <pthread.h>
-#include "hisi_qm_udrv.h"
 #include "hisi_sec.h"
 
 #define SEC_DIGEST_ALG_OFFSET 11
@@ -311,7 +310,7 @@ int hisi_sec_crypto(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg)
 		WD_ERR("send failed (%d)\n", ret);
 		return ret;
 	}
-	while(true) {
+	while (true) {
 		ret = hisi_qm_recv(priv->qp->h_ctx, (void **)&recv_msg);
 		if (ret == -EIO) {
 			WD_ERR("wd recv msg failed!\n");

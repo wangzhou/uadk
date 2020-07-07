@@ -196,6 +196,11 @@ int wd_alg_decrypt(handle_t handle, struct wd_cipher_arg *arg)
 	return sess->drv->decrypt(sess, arg);
 }
 
+static int is_des_weak_key(const __u64 *key, __u16 keylen)
+{
+	return 0;
+}
+
 static int aes_key_len_check(__u16 length)
 {
 	switch (length) {
@@ -254,6 +259,10 @@ int wd_alg_set_key(handle_t handle, __u8 *key, __u32 key_len)
 	ret = cipher_key_len_check(sess->alg, length);
 	if (ret) {
 		WD_ERR("%s inpupt key length err!\n", __func__);
+		return -EINVAL;
+	}
+	if (sess->mode == WD_CIPHER_DES && is_des_weak_key(key, length)) {
+		WD_ERR("%s: input des key is weak key!\n", __func__);
 		return -EINVAL;
 	}
 
