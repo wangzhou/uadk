@@ -52,6 +52,29 @@
 
 static pthread_mutex_t		hisi_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+struct hisi_block_info {
+	struct wd_comp_arg	*arg;
+	void	*next_in;
+	void	*next_out;
+	void	*swap_in;
+	void	*swap_out;
+	size_t	size_in;	// the size of IN buf
+	size_t	loaded_in;	// data size in IN buf for current transaction
+	size_t	avail_in;	// the size that is free to use in IN buf
+	size_t	avail_out;
+	void	*ss_region;
+	size_t	ss_region_size;
+	int	alg_type;
+	int	op_type;
+	int	dw9;
+	int	isize;
+	int	checksum;
+	int	load_head;
+	struct hisi_zip_sqe	*msg;
+	int	undrained;
+	int	skipped;	// inflate
+};
+
 struct hisi_strm_info {
 	struct wd_comp_arg	*arg;
 	void	*next_in;
@@ -85,6 +108,7 @@ struct hisi_comp_sess {
 	struct hisi_qp		*qp;
 	struct wd_scheduler	sched;
 	struct hisi_strm_info	strm;
+	struct hisi_block_info	block;
 	struct hisi_qm_capa	capa;
 	int	inited;
 };
@@ -113,23 +137,9 @@ struct hisi_sched {
 static inline int is_nosva(struct wd_comp_sess *sess)
 {
 	struct hisi_comp_sess	*priv = (struct hisi_comp_sess *)sess->priv;
-	struct wd_scheduler	*sched = &priv->sched;
-	struct hisi_sched	*hsched = sched->priv;
 	struct hisi_qp		*qp = priv->qp;
-	handle_t	h_ctx = 0;
 
-	if (sess->mode & MODE_STREAM) {
-		h_ctx = qp->h_ctx;
-	} else {
-		if (hsched->dir == HISI_SCHED_INPUT)
-			h_ctx = sched->qs[sched->q_h];
-		else
-			h_ctx = sched->qs[sched->q_t];
-	}
-	/* If context handle is NULL, always consider it as NOSVA. */
-	if (!h_ctx)
-		return 1;
-	return wd_is_nosva(h_ctx);
+	return wd_is_nosva(qp->h_ctx);
 }
 
 static inline int is_new_src(struct wd_comp_sess *sess, struct wd_comp_arg *arg)
@@ -163,18 +173,13 @@ static inline int is_new_dst(struct wd_comp_sess *sess, struct wd_comp_arg *arg)
 {
 	struct hisi_comp_sess	*priv = (struct hisi_comp_sess *)sess->priv;
 	struct hisi_strm_info	*strm = &priv->strm;
-	struct wd_scheduler	*sched = &priv->sched;
-	struct hisi_sched	*hsched = sched->priv;
-	struct wd_msg		*msgs = sched->msgs;
+	struct hisi_block_info	*block = &priv->block;
 	void	*next_out = NULL;
 
 	if (sess->mode & MODE_STREAM) {
 		next_out = strm->next_out;
 	} else {
-		if (hsched->dir == HISI_SCHED_INPUT)
-			next_out = msgs[sched->c_h].next_out;
-		else
-			next_out = msgs[sched->c_t].next_out;
+		next_out = block->next_out;
 	}
 	if (!next_out)
 		return 1;
@@ -217,6 +222,429 @@ static inline int need_split(struct wd_comp_sess *sess, int buf_size)
 	return 0;
 }
 
+static int hisi_comp_block_init(struct wd_comp_sess *sess)
+{
+	struct hisi_comp_sess	*priv = (struct hisi_comp_sess *)sess->priv;
+	struct hisi_block_info	*block = &priv->block;
+	struct hisi_qm_capa	*capa = &priv->capa;
+
+	if (!strncmp(sess->alg_name, "zlib", strlen("zlib"))) {
+		capa->alg = strdup("zlib");
+		block->alg_type = ZLIB;
+		block->dw9 = 2;
+	} else if (!strncmp(sess->alg_name, "gzip", strlen("gzip"))) {
+		capa->alg = strdup("gzip");
+		block->alg_type = GZIP;
+		block->dw9 = 3;
+	} else
+		return -EINVAL;
+	block->msg = calloc(1, sizeof(struct hisi_block_info));
+	if (!block->msg)
+		return -ENOMEM;
+	return 0;
+}
+
+static int hisi_comp_block_prep(struct wd_comp_sess *sess,
+				struct wd_comp_arg *arg)
+{
+	struct hisi_comp_sess	*priv = (struct hisi_comp_sess *)sess->priv;
+	struct hisi_block_info	*block = &priv->block;
+	struct hisi_qm_priv	*qm_priv;
+	handle_t h_ctx;
+	int	ret;
+
+	qm_priv = (struct hisi_qm_priv *)&priv->capa.priv;
+	qm_priv->sqe_size = sizeof(struct hisi_zip_sqe);
+	qm_priv->op_type = (arg->flag & FLAG_DEFLATE) ? DEFLATE: INFLATE;
+
+	pthread_mutex_lock(&hisi_mutex);
+	h_ctx = hisi_qm_alloc_ctx(sess->node_path,
+				  (void *)qm_priv,
+				  (void **)&priv->qp);
+	if (!h_ctx) {
+		ret = -EINVAL;
+		pthread_mutex_unlock(&hisi_mutex);
+		goto out;
+	}
+	pthread_mutex_unlock(&hisi_mutex);
+	block->load_head = 0;
+	block->undrained = 0;
+	block->skipped = 0;
+	block->loaded_in = 0;
+	block->avail_in = 0;
+	block->size_in = STREAM_MAX;
+	block->op_type = qm_priv->op_type;
+	if (wd_is_nosva(h_ctx)) {
+		block->ss_region_size = 4096 + STREAM_MAX * 2 + HW_CTX_SIZE;
+		block->ss_region = wd_reserve_mem(h_ctx,
+					sizeof(char) * block->ss_region_size);
+		if (!block->ss_region) {
+			WD_ERR("fail to allocate memory for SS region\n");
+			ret = -ENOMEM;
+			goto out_ss;
+		}
+		ret = smm_init(block->ss_region, block->ss_region_size, 0xF);
+		if (ret)
+			goto out_smm;
+		ret = -ENOMEM;
+		block->swap_in = smm_alloc(block->ss_region, STREAM_MAX);
+		if (!block->swap_in)
+			goto out_smm;
+		block->swap_out = smm_alloc(block->ss_region, STREAM_MAX);
+		if (!block->swap_out)
+			goto out_smm_out;
+		block->next_in = block->swap_in;
+		block->next_out = block->swap_out;
+	} else {
+		block->swap_in = malloc(STREAM_MIN);
+		if (!block->swap_in)
+			goto out_in;
+		block->swap_out = malloc(STREAM_MIN);
+		if (!block->swap_out)
+			goto out_out;
+		block->next_in = NULL;
+		block->next_out = NULL;
+	}
+	return 0;
+
+out_smm_out:
+	smm_free(block->ss_region, block->swap_in);
+out_smm:
+	free(block->ss_region);
+out_ss:
+	hisi_qm_free_ctx(h_ctx);
+out:
+	return ret;
+
+out_out:
+	free(block->next_in);
+out_in:
+	hisi_qm_free_ctx(h_ctx);
+	return -ENOMEM;
+}
+
+static void hisi_comp_block_exit(struct wd_comp_sess *sess)
+{
+	struct hisi_comp_sess	*priv;
+	struct hisi_block_info	*block;
+	struct hisi_qp		*qp;
+
+	priv = (struct hisi_comp_sess *)sess->priv;
+	block = &priv->block;
+	qp = priv->qp;
+
+	if (wd_is_nosva(qp->h_ctx)) {
+		smm_free(block->ss_region, block->swap_in);
+		smm_free(block->ss_region, block->swap_out);
+	} else {
+		free(block->swap_in);
+		free(block->swap_out);
+	}
+	pthread_mutex_lock(&hisi_mutex);
+	hisi_qm_free_ctx(qp->h_ctx);
+	pthread_mutex_unlock(&hisi_mutex);
+	free(block->msg);
+}
+
+static int hisi_block_comm(struct wd_comp_sess *sess, int flush)
+{
+	struct hisi_comp_sess	*priv;
+	struct hisi_qp		*qp;
+	struct hisi_zip_sqe	*msg, *recv_msg;
+	struct hisi_block_info	*block;
+	uint32_t	status, type;
+	uint64_t	addr;
+	size_t	templen;
+	int	ret = 0;
+
+	priv = (struct hisi_comp_sess *)sess->priv;
+	block = &priv->block;
+	qp = priv->qp;
+
+	msg = block->msg;
+	memset((void *)msg, 0, sizeof(*msg));
+	msg->dw9 = block->dw9;
+	if (block->skipped) {
+		block->next_in += block->skipped;
+		block->loaded_in -= block->skipped;
+	}
+	if (wd_is_nosva(qp->h_ctx)) {
+		addr = (uint64_t)wd_get_dma_from_va(qp->h_ctx, block->next_in);
+		msg->source_addr_l = (uint64_t)addr & 0xffffffff;
+		msg->source_addr_h = (uint64_t)addr >> 32;
+		addr = (uint64_t)wd_get_dma_from_va(qp->h_ctx, block->next_out);
+		msg->dest_addr_l = (uint64_t)addr & 0xffffffff;
+		msg->dest_addr_h = (uint64_t)addr >> 32;
+	} else {
+		msg->source_addr_l = (uint64_t)block->next_in & 0xffffffff;
+		msg->source_addr_h = (uint64_t)block->next_in >> 32;
+		msg->dest_addr_l = (uint64_t)block->next_out & 0xffffffff;
+		msg->dest_addr_h = (uint64_t)block->next_out >> 32;
+	}
+	msg->input_data_length = block->loaded_in;
+	msg->dest_avail_out = block->avail_out;
+
+	pthread_mutex_lock(&hisi_mutex);
+
+	ret = hisi_qm_send(qp->h_ctx, msg);
+	if (ret == -EBUSY) {
+		usleep(1);
+		goto recv_again;
+	}
+	if (ret) {
+		WD_ERR("send failure (%d)\n", ret);
+		pthread_mutex_unlock(&hisi_mutex);
+		goto out;
+	}
+
+recv_again:
+	ret = hisi_qm_recv(qp->h_ctx, (void **)&recv_msg);
+	if (ret == -EIO) {
+		fputs(" wd_recv fail!\n", stderr);
+		pthread_mutex_unlock(&hisi_mutex);
+		goto out;
+	/* synchronous mode, if get none, then get again */
+	} else if (ret == -EAGAIN)
+		goto recv_again;
+	pthread_mutex_unlock(&hisi_mutex);
+
+	status = recv_msg->dw3 & 0xff;
+	type = recv_msg->dw9 & 0xff;
+	if (!status || (status == 0x0d) || (status == 0x13)) {
+		block->undrained += recv_msg->produced;
+		block->next_in += recv_msg->consumed;
+		block->next_out += recv_msg->produced;
+		block->avail_out -= recv_msg->produced;
+		block->isize = recv_msg->isize;
+		block->checksum = recv_msg->checksum;
+
+		templen = block->loaded_in - recv_msg->consumed;
+		block->avail_in += templen;
+		/* only partial source data is consumed */
+		if (templen && (block->arg->status & STATUS_IN_EMPTY)) {
+			block->arg->status &= ~STATUS_IN_EMPTY;
+			block->arg->status |= STATUS_IN_PART_USE;
+			block->arg->src -= templen;
+			block->arg->src_len = recv_msg->consumed +
+					      block->skipped;
+		} else {
+			/* all source data is consumed */
+			block->arg->src_len = recv_msg->consumed +
+					      block->skipped;
+		}
+		/* after one transaction, always load data to IN buf again */
+		block->loaded_in = 0;
+		block->avail_in = 0;
+
+		if (ret == 0 && flush == WD_FINISH)
+			ret = Z_STREAM_END;
+		else if (ret == 0 &&  (recv_msg->dw3 & 0x1ff) == 0x113)
+			ret = Z_STREAM_END;    /* decomp_is_end  region */
+	} else
+		WD_ERR("bad status (s=%d, t=%d)\n", status, type);
+
+	return ret;
+out:
+	pthread_mutex_unlock(&hisi_mutex);
+	return ret;
+}
+
+static void hisi_block_pre_buf(struct wd_comp_sess *sess,
+				struct wd_comp_arg *arg,
+				int *full)
+{
+	struct hisi_comp_sess	*priv;
+	struct hisi_block_info	*block;
+	struct hisi_qp		*qp;
+	const char zip_head[2] = {0x78, 0x9c};
+	const char gzip_head[10] = {0x1f, 0x8b, 0x08, 0x0, 0x0,
+				    0x0, 0x0, 0x0, 0x0, 0x03};
+	int templen, skipped;
+
+	priv = (struct hisi_comp_sess *)sess->priv;
+	block = &priv->block;
+	qp = priv->qp;
+
+	/* reset block->avail_in */
+	if (block->avail_in < STREAM_MIN) {
+		if (wd_is_nosva(qp->h_ctx)) {
+			block->next_in = block->swap_in;
+			block->size_in = STREAM_MAX;
+			block->avail_in = STREAM_MAX;
+			block->loaded_in = 0;
+		} else if (need_swap(sess, arg->src_len) &&
+			   (block->size_in != STREAM_MIN)) {
+			block->next_in = block->swap_in;
+			block->size_in = STREAM_MIN;
+			block->avail_in = STREAM_MIN;
+			block->loaded_in = 0;
+		} else if (block->size_in != STREAM_MIN) {
+			block->next_in = arg->src;
+			block->size_in = STREAM_MAX;
+			block->avail_in = STREAM_MAX;
+			block->loaded_in = 0;
+		}
+	}
+
+	/* full & skipped are used in IN, strm->undrained is used in OUT */
+	if (need_swap(sess, arg->dst_len)) {
+		if (wd_is_nosva(qp->h_ctx))
+			block->avail_out = STREAM_MAX;
+		else
+			block->avail_out = STREAM_MIN;
+		if (is_new_dst(sess, arg) || !block->undrained)
+			block->next_out = block->swap_out;
+	} else if (need_split(sess, arg->dst_len)) {
+		block->next_out = arg->dst;
+		block->avail_out = STREAM_MAX;
+	} else {
+		block->next_out = arg->dst;
+		block->avail_out = arg->dst_len;
+	}
+
+	if (!block->load_head && block->op_type == DEFLATE) {
+		if (block->alg_type == ZLIB) {
+			memcpy(block->next_out, &zip_head, 2);
+			templen = 2;
+		} else {
+			memcpy(block->next_out, &gzip_head, 10);
+			templen = 10;
+		}
+		block->next_out += templen;
+		block->avail_out -= templen;
+		block->undrained += templen;
+		block->load_head = 1;
+	}
+	if (arg->src_len) {
+		if (arg->src_len >= block->avail_in) {
+			templen = block->avail_in;
+			*full = 1;
+		} else {
+			templen = arg->src_len;
+		}
+		if (need_swap(sess, arg->src_len)) {
+			memcpy(block->next_in + block->loaded_in,
+			       arg->src,
+			       templen);
+		}
+		block->loaded_in += templen;
+		block->avail_in -= templen;
+		arg->src += templen;
+	}
+
+	if (!block->load_head && block->op_type == INFLATE) {
+		if (block->alg_type == ZLIB)
+			skipped = 2;
+		else
+			skipped = 10;
+		if (block->loaded_in >= skipped) {
+			block->skipped = skipped;
+			block->load_head = 1;
+		}
+	}
+}
+
+static void hisi_block_post_buf(struct wd_comp_sess *sess,
+				struct wd_comp_arg *arg)
+{
+	struct hisi_comp_sess	*priv;
+	struct hisi_block_info	*block;
+	int templen;
+
+	priv = (struct hisi_comp_sess *)sess->priv;
+	block = &priv->block;
+
+	if (block->undrained) {
+		if (is_in_swap(sess, block->next_out, block->swap_out)) {
+			if (block->undrained > arg->dst_len)
+				templen = arg->dst_len;
+			else
+				templen = block->undrained;
+			memcpy(arg->dst, block->next_out - block->undrained,
+			       templen);
+			arg->dst += templen;
+			arg->dst_len = templen;
+			block->undrained -= templen;
+		} else {
+			/* drain next_out first */
+			arg->dst += block->undrained;
+			arg->dst_len = block->undrained;
+			block->undrained = 0;
+		}
+		arg->status |= STATUS_OUT_READY;
+	}
+	if (!block->undrained && !block->loaded_in) {
+		arg->status |= STATUS_OUT_DRAINED;
+		block->next_out = NULL;
+	}
+}
+
+static int hisi_comp_block_deflate(struct wd_comp_sess *sess,
+				   struct wd_comp_arg *arg)
+{
+	struct hisi_comp_sess	*priv;
+	struct hisi_block_info	*block;
+	int	ret, flush = 0;
+	int	full = 0;
+
+	priv = (struct hisi_comp_sess *)sess->priv;
+	block = &priv->block;
+	block->arg = arg;
+	block->op_type = DEFLATE;
+
+	hisi_block_pre_buf(sess, arg, &full);
+	arg->status &= ~STATUS_IN_PART_USE;
+	arg->status |= STATUS_IN_EMPTY;
+	if (block->loaded_in) {
+		if (arg->flag & FLAG_INPUT_FINISH)
+			flush = WD_FINISH;
+		else if (full)
+			flush = WD_SYNC_FLUSH;
+		else {
+			hisi_block_post_buf(sess, arg);
+			return 0;
+		}
+		ret = hisi_block_comm(sess, flush);
+		if (ret < 0)
+			return ret;
+	}
+	hisi_block_post_buf(sess, arg);
+	return 0;
+}
+
+static int hisi_comp_block_inflate(struct wd_comp_sess *sess,
+				   struct wd_comp_arg *arg)
+{
+	struct hisi_comp_sess	*priv;
+	struct hisi_block_info	*block;
+	int	flush = 0, full = 0, ret;
+
+	priv = (struct hisi_comp_sess *)sess->priv;
+	block = &priv->block;
+	block->arg = arg;
+	block->op_type = INFLATE;
+
+	hisi_block_pre_buf(sess, arg, &full);
+	arg->status &= ~STATUS_IN_PART_USE;
+	arg->status |= STATUS_IN_EMPTY;
+	if (block->loaded_in) {
+		if (arg->flag & FLAG_INPUT_FINISH)
+			flush = WD_FINISH;
+		else if (full)
+			flush = WD_SYNC_FLUSH;
+		else {
+			hisi_block_post_buf(sess, arg);
+			return 0;
+		}
+		ret = hisi_block_comm(sess, flush);
+		if (ret < 0)
+			return ret;
+	}
+	hisi_block_post_buf(sess, arg);
+	return 0;
+}
+
+#if 0
 /*
  * sched cuts a large frame from user App to multiple messages.
  * sched doesn't need to consider minimum block size.
@@ -709,6 +1137,7 @@ static int hisi_comp_sched_inflate(struct wd_comp_sess *sess,
 	arg->status = STATUS_IN_EMPTY | STATUS_OUT_READY | STATUS_OUT_DRAINED;
 	return 0;
 }
+#endif
 
 
 static int hisi_comp_strm_init(struct wd_comp_sess *sess)
@@ -1188,7 +1617,7 @@ int hisi_comp_init(struct wd_comp_sess *sess)
 	if (sess->mode & MODE_STREAM)
 		hisi_comp_strm_init(sess);
 	else
-		hisi_comp_sched_init(sess);
+		hisi_comp_block_init(sess);
 	return 0;
 }
 
@@ -1197,7 +1626,7 @@ void hisi_comp_exit(struct wd_comp_sess *sess)
 	if (sess->mode & MODE_STREAM) {
 		hisi_comp_strm_exit(sess);
 	} else {
-		hisi_comp_sched_exit(sess);
+		hisi_comp_block_exit(sess);
 	}
 	free(sess->priv);
 	sess->priv = NULL;
@@ -1213,7 +1642,7 @@ int hisi_comp_prep(struct wd_comp_sess *sess, struct wd_comp_arg *arg)
 	if (sess->mode & MODE_STREAM)
 		ret = hisi_comp_strm_prep(sess, arg);
 	else
-		ret = hisi_comp_sched_prep(sess, arg);
+		ret = hisi_comp_block_prep(sess, arg);
 	if (!ret)
 		priv->inited = 1;
 	return ret;
@@ -1226,7 +1655,7 @@ int hisi_comp_deflate(struct wd_comp_sess *sess, struct wd_comp_arg *arg)
 	if (sess->mode & MODE_STREAM)
 		ret = hisi_comp_strm_deflate(sess, arg);
 	else
-		ret = hisi_comp_sched_deflate(sess, arg);
+		ret = hisi_comp_block_deflate(sess, arg);
 	return ret;
 }
 
@@ -1237,7 +1666,7 @@ int hisi_comp_inflate(struct wd_comp_sess *sess, struct wd_comp_arg *arg)
 	if (sess->mode & MODE_STREAM)
 		ret = hisi_comp_strm_inflate(sess, arg);
 	else
-		ret = hisi_comp_sched_inflate(sess, arg);
+		ret = hisi_comp_block_inflate(sess, arg);
 	return ret;
 }
 
