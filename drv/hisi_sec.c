@@ -16,7 +16,7 @@
 
 #define SEC_COMM_SCENE	      0
 #define SEC_SCENE_OFFSET	  3
-#define SEC_CMOME_OFFSET	  12
+#define SEC_CMODE_OFFSET	  12
 #define SEC_CKEY_OFFSET		  9
 #define SEC_CIPHER_OFFSET	  4
 #define XTS_MODE_KEY_DIVISOR	  2
@@ -240,6 +240,32 @@ static int fill_cipher_bd2_alg(struct wd_cipher_sess *sess, struct hisi_sec_sqe 
 	return ret;
 }
 
+static int fill_cipher_bd2_mode(struct wd_cipher_sess *sess, struct hisi_sec_sqe *sqe)
+{
+	__u16 c_mode;
+
+	switch (sess->mode) {
+		case WD_CIPHER_ECB:
+			c_mode = C_MODE_ECB;
+			break;
+		case WD_CIPHER_CBC:
+			c_mode = C_MODE_CBC;
+			break;
+		case WD_CIPHER_CTR:
+			c_mode = C_MODE_CTR;
+			break;
+		case WD_CIPHER_XTS:
+			c_mode = C_MODE_XTS;
+			break;
+		default:
+			WD_ERR("Invalid cipher mode type!\n");
+			return -EINVAL;
+	}
+	sqe->type2.icvw_kmode |= (__u16)(c_mode) << SEC_CMODE_OFFSET;
+
+	return 0;
+}
+
 static int hisi_cipher_create_request(struct wd_cipher_sess *sess, struct wd_cipher_arg *arg,
 				struct hisi_sec_sqe *sqe)
 {
@@ -266,8 +292,13 @@ static int hisi_cipher_create_request(struct wd_cipher_sess *sess, struct wd_cip
 		WD_ERR("fill cipher bd2 alg failed!\n");
 		return ret;
 	}
-	//sqe->type2.c_alg = (__u8)sess->alg;
-	//sqe->type2.icvw_kmode |= (__u16)(sess->mode) << SEC_CMOME_OFFSET;
+
+	ret = fill_cipher_bd2_mode(sess, sqe);
+	if (ret) {
+		WD_ERR("fill cipher bd2 mode failed!\n");
+		return ret;
+	}
+
 	if (arg->op_type == WD_CIPHER_ENCRYPTION)
 		cipher = SEC_CIPHER_ENC << SEC_CIPHER_OFFSET;
 	else
@@ -275,6 +306,7 @@ static int hisi_cipher_create_request(struct wd_cipher_sess *sess, struct wd_cip
 
 	// config key
 	sqe->type2.c_key_addr = (__u64)sess->key;
+
 	return 0;
 }
 
