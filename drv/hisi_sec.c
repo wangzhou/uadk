@@ -152,9 +152,6 @@ void hisi_sec_exit(struct hisi_sec_sess *sec_sess)
 
 	/* free alloc_qp_ctx */
 	hisi_qm_free_ctx(sec_sess->qp->h_ctx);
-
-	/* wd_release_ctx */
-	wd_release_ctx(sec_sess->qp->h_ctx);
 }
 
 int hisi_sec_set_key(struct wd_cipher_sess *sess, const __u8 *key, __u32 key_len)

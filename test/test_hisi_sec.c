@@ -16,7 +16,7 @@ static void hexdump(char *buff, unsigned int len)
 	unsigned int i;
 
 	for (i = 0; i < len; i++) {
-		printf("\\0x%x", i, buff[i]);
+		printf("\\0x%02x", buff[i]);
 		if ((i + 1) % 8 == 0)
 			printf("\n");
 	}
@@ -56,13 +56,6 @@ static int test_sec(int flag)
 	arg.dst = malloc(BUFF_SIZE);
 	if (!arg.dst) {
 		printf("arg dst mem malloc failed!\n");
-		ret = -1;
-		goto out;
-	}
-
-	arg.key = malloc(BUFF_SIZE);
-	if (!arg.key) {
-		printf("arg key mem malloc failed!\n");
 		ret = -1;
 		goto out;
 	}
