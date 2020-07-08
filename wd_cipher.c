@@ -51,12 +51,12 @@ handle_t wd_alg_cipher_alloc_sess(struct wd_cipher_sess_setup *setup,
 
 	if (!setup->alg_name)
 		return 0;
-	if (setup->alg < WD_CIPHER_ALG_TYPE_NONE ||
+	if (setup->alg <= WD_CIPHER_ALG_TYPE_NONE ||
 	    setup->alg >= WD_CIPHER_ALG_TYPE_MAX) {
 		WD_ERR("setup cipher alg err.\n");
 		return -EINVAL;
 	}
-	if (setup->mode < WD_CIPHER_MODE_TYPE_NONE ||
+	if (setup->mode <= WD_CIPHER_MODE_TYPE_NONE ||
 	    setup->mode >= WD_CIPHER_MODE_TYPE_MAX) {
 		WD_ERR("setup cipher mode err.\n");
 		return -EINVAL;
