@@ -58,6 +58,8 @@ struct wd_cipher_sess {
 	wd_dev_mask_t		*dev_mask;
 	struct wd_alg_cipher	*drv;
 	void			*priv;
+	void			*key;
+	__u32			key_bytes;
 };
 
 struct wd_cipher_arg {

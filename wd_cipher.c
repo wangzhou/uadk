@@ -6,6 +6,7 @@
 #define SM4_KEY_SIZE         16
 #define DES_KEY_SIZE	     8
 #define DES3_3KEY_SIZE	     (3 * DES_KEY_SIZE)
+#define MAX_CIPHER_KEY_SIZE  64
 
 struct wd_alg_cipher {
 	char	*drv_name;
@@ -126,6 +127,12 @@ handle_t wd_alg_cipher_alloc_sess(struct wd_cipher_sess_setup *setup,
 
 	sess->alg = setup->alg;
 	sess->mode = setup->mode;
+	sess->key = malloc(MAX_CIPHER_KEY_SIZE);
+	if (sess->key) {
+		WD_ERR("alloc cipher sess key fail!\n");
+		free(sess);
+		goto out;
+	}
 	sess->alg_name = strdup(setup->alg_name);
 	dev_name = wd_get_accel_name(p->info->dev_root, 0);
 	snprintf(sess->node_path, MAX_DEV_NAME_LEN, "/dev/%s", dev_name);

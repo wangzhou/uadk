@@ -81,8 +81,6 @@ struct hisi_sec_sess {
 	struct hisi_qp *qp;
 	struct hisi_qp_async *qp_async;
 	char *node_path;
-	void *key;
-	__u32 key_bytes;
 };
 
 struct hisi_qp_async_list {
@@ -159,7 +157,7 @@ void hisi_sec_exit(struct hisi_sec_sess *sec_sess)
 	wd_release_ctx(sec_sess->qp->h_ctx);
 }
 
-int hisi_sec_set_key(struct hisi_sec_sess *sess, const __u8 *key, __u32 key_len)
+int hisi_sec_set_key(struct wd_cipher_sess *sess, const __u8 *key, __u32 key_len)
 {
 	/* store key to sess */
 	memcpy(sess->key, key, key_len);
@@ -170,10 +168,9 @@ int hisi_sec_set_key(struct hisi_sec_sess *sess, const __u8 *key, __u32 key_len)
 
 static int get_aes_c_key_len(struct wd_cipher_sess *sess, __u8 *c_key_len)
 {
-	struct hisi_sec_sess *sec_sess = (struct hisi_sec_sess *)sess->priv;
 	__u16 len;
 
-	len = sec_sess->key_bytes;
+	len = sess->key_bytes;
 
 	if (sess->mode == WD_CIPHER_XTS)
 		len = len / XTS_MODE_KEY_DIVISOR;
@@ -201,9 +198,9 @@ static int get_3des_c_key_len(struct wd_cipher_sess *sess, __u8 *c_key_len)
 {
 	struct hisi_sec_sess *sec_sess = sess->priv;
 
-	if (sec_sess->key_bytes == SEC_3DES_2KEY_SIZE) {
+	if (sess->key_bytes == SEC_3DES_2KEY_SIZE) {
 		*c_key_len = CKEY_LEN_3DES_2KEY;
-	} else if (sec_sess->key_bytes == SEC_3DES_3KEY_SIZE) {
+	} else if (sess->key_bytes == SEC_3DES_3KEY_SIZE) {
 		*c_key_len = CKEY_LEN_3DES_3KEY;
 	} else {
 		WD_ERR("Invalid 3DES key size!\n");
@@ -280,8 +277,7 @@ static int hisi_cipher_create_request(struct wd_cipher_sess *sess, struct wd_cip
 		cipher = SEC_CIPHER_DEC << SEC_CIPHER_OFFSET;
 
 	// config key
-	//sqe->type2.c_key_addr = (__u64)sec_sess->key;
-	//sqe->type2.icvw_kmode |= (__u16)(sec_sess->key_bytes) << SEC_CKEY_OFFSET;
+	sqe->type2.c_key_addr = (__u64)sess->key;
 	return 0;
 }
 
@@ -484,7 +480,6 @@ static void hisi_digest_create_request(struct wd_digest_sess *sess,
 				struct wd_digest_arg *arg,
 				struct hisi_sec_sqe *sqe)
 {
-	struct hisi_sec_sess *sec_sess = sess->priv;
 	__u8 de = 1;
 	__u8 scene;
 
@@ -500,8 +495,8 @@ static void hisi_digest_create_request(struct wd_digest_sess *sess,
 	sqe->type2.mac_addr = (__u64)arg->out;
         if (arg->mode == WD_DIGEST_HMAC) {
 		/* config a key */
-		sqe->type2.mac_key_alg |= (sec_sess->key_bytes / WORD_BYTES) << SEC_AUTH_KEY_OFFSET;
-		sqe->type2.a_key_addr = (__u64)(sec_sess->key);
+		sqe->type2.mac_key_alg |= (sess->key_bytes / WORD_BYTES) << SEC_AUTH_KEY_OFFSET;
+		sqe->type2.a_key_addr = (__u64)(sess->key);
 	}
 	/* fix me */
 	qm_fill_digest_alg(sess, arg, sqe);	

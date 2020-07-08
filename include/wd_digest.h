@@ -62,6 +62,8 @@ struct wd_digest_sess {
 	wd_dev_mask_t		*dev_mask;
 	struct wd_alg_digest	*drv;
 	void			*priv;
+	void 			*key;
+	__u32			key_bytes;
 };
 
 /**
