@@ -14,8 +14,10 @@
 #define SEC_FLAG_MASK	      0x780
 #define SEC_TYPE_MASK	      0x0f
 
-#define SEC_COMM_SCENE	      0
+#define SEC_COMM_SCENE		  0
+#define SEC_IPSEC_SCENE		  1
 #define SEC_SCENE_OFFSET	  3
+#define SEC_DE_OFFSET		  1
 #define SEC_CMODE_OFFSET	  12
 #define SEC_CKEY_OFFSET		  9
 #define SEC_CIPHER_OFFSET	  4
@@ -271,14 +273,15 @@ static int hisi_cipher_create_request(struct wd_cipher_sess *sess, struct wd_cip
 {
 	struct hisi_sec_sess *sec_sess = sess->priv;
 	__u8 scene, cipher;
-	__u8 de = 1;
+	__u8 de;
 	int ret;
 
 	/* config BD type */
 	sqe->type_auth_cipher = BD_TYPE2;
 	/* config scence */
-	scene = SEC_COMM_SCENE << SEC_SCENE_OFFSET;
-	sqe->sds_sa_type = (de | scene);
+	scene = SEC_IPSEC_SCENE << SEC_SCENE_OFFSET;
+	de = 0x1 << SEC_DE_OFFSET;
+	sqe->sds_sa_type = (__u8)(de | scene);
 
 	sqe->type2.clen_ivhlen |= (__u32)arg->in_bytes;
 	sqe->type2.data_src_addr = (__u64)arg->src;
@@ -304,8 +307,9 @@ static int hisi_cipher_create_request(struct wd_cipher_sess *sess, struct wd_cip
 	else
 		cipher = SEC_CIPHER_DEC << SEC_CIPHER_OFFSET;
 
-	// config key
+	sqe->type_auth_cipher |= cipher;
 	sqe->type2.c_key_addr = (__u64)sess->key;
+	// fix tag.
 
 	return 0;
 }
