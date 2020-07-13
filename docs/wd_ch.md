@@ -883,7 +883,7 @@ sess: 压缩解压会话上下文；stm：描述 一个流模式的请求
 
 函数原型
 ```
-void wd_comp_poll(void *sess, __u32 count); 
+void wd_comp_poll(void \*sess, __u32 count); 
 ```
 
 函数功能
@@ -909,11 +909,13 @@ NULL
 这里的例子是所有异步发送的数据包，都放在一个线程上进行polling。
 
 ```
+	Example: POLL-1
+
 	/* poll all packets on single context */
 	for (i = 0, async_cached = 0; i < nums; i++) {
-		ret = wd_comp_async(sess, input, callback);
+		ret = wd_comp_async(h_sess, input, callback, ...);
 		if (ret == -EBUSY) {
-			ret = wd_comp_poll(sess, async_cached, ctx[]);
+			ret = wd_comp_poll(async_cached, timeout, ...);
 			if (ret < 0)
 				return ret;
 			async_cached = 0;
@@ -925,13 +927,155 @@ NULL
 		}
 	}
 	if (async_cached) {
-		ret = wd_comp_poll(sess, async_cached, ctx[]);
+		ret = wd_comp_poll(async_cached, timeout, ...);
 		if (ret < 0)
 			return ret;
 	}
 ```
 
-上述例子，用户程序可能有许多数据包要往加速器上放，但是加速器无法同时处理很多
-数据包。
+在POLL-1的例子，*wd_comp_async()*是被直接调用，并且不等加速器处理完成，直接返回
+然后继续发送下一个数据包。这些数据包在算法层被放置在缓存中，然后依次下发到加速
+器硬件通道中。这样的一个缓存队列，可以让加速器完成一次完成一组包的操作，能尽可
+能的加大硬件的数据吞吐量来提高性能。
+
+在POLL-1的例子中也存在一些问题。虽然是异步接口，但是用户程序是按照同步的方法在
+使用。当缓存队列满后，用户程序只能使用*wd_comp_poll()*来从加速器上取数据包，这
+种busy-loop的方式，将会导致加速器的I/O性能不够好，没有充分发挥出异步接口的特点。
+
 ```
+	Example: POLL-2
+
+	#define POLL_MAX		20
+
+	/* send_async_usr() runs on Thread A.
+	 * Thread A needs to inform Thread C that *nums* packets are sending.
+	 */
+	send_async_usr(handle_t h_sess, void (*callback)())
+	{
+		/* *nums* and *input* may be input parameters of
+		 * send_async_usr(), or be generated in send_async_usr().
+		 * It depends on user.
+		 */
+		for (i = 0; i < nums; i++) {
+			ret = wd_comp_async(h_sess, input, callback, ...);
+			if (ret == -EBUSY) {
+				wd_comp_wait(h_sess);
+			}
+		}
+	}
+
+	/* poll_usr() runs on Thread C
+	 * Parameter *nums* is coming from Thread A.
+	 * Returns *nums* if SUCCEED.
+	 * Returns negative value if FAIL.
+	 */
+	int poll_usr(int nums, unsigned int timeout)
+	{
+		retry = 0;
+		left = nums;
+
+		while ((left) && (retry < POLL_MAX)) {
+			ret = wd_comp_poll(left, timeout, ...);
+			if (ret > 0) {
+				left = left - ret;
+				retry = 0;
+				wd_comp_wakeup(h_sess);
+			} else if (ret == 0) {
+				/* Can't poll any packet. */
+				usleep(10);
+				ret = -EFAULT;
+				retry++;
+			} else if (ret == -ETIME) {
+				/* Timeout */
+				usleep(10);
+				retry++;
+			} else {
+				break;
+			}
+		}
+		if ((retry == POLL_MAX) && ((ret < 0) && (ret != -ETIME))) {
+			printf("Failed to poll any packet from sess.\n");
+			return ret;
+		}
+		return nums;
+	}
+```
+
+在POLL-2的例子中，一共有两个线程，分别是线程A和线程C。线程A会不断地往加速器上
+放数据包。由于算法库提供的缓存有限，当缓存满后，线程A无法进一步放置更多的数据
+包，只有等加速器处理完这些数据包，并且用户程序从加速器中取出这些数据包的结果，
+加速器的缓存才能重新开始接受新的数据包。为了防止缓存满后，用户使用busy-loop的
+方式来poll，这里在线程A上引入了*wd_wait()*。*wd_wait()*将让线程A进入睡眠模式，
+只有线程C通过*wd_comp_poll()*将数据包从加速器中取出时，通过*wd_comp_wakeup()*
+来唤醒线程A，才能继续让线程A发送数据。当*wd_poll()*没有获取到处理过后的数据包
+，只能使用*usleep()*来等待硬件，尽最大可能减小因为busy-loop导致的性能损耗。
+
+当用户程序需要使用多线程向加速器发送数据包时，为了节省加速器的通道资源，就会让
+多个session公用一个加速器的通道。如果多个session使用的数据包大小大约一致时，无
+论哪个线程的数据包先被处理，都不会影响总体性能。当线程A使用大的数据包，线程B使
+用小数据包时，如果大包在缓存队列的前面，小包在缓存队列后面，那么线程B的性能会
+因为线程A而受到影响。因此用户可以使用多个通道（context）资源，来降低对性能的影
+响。
+
+```
+	Example: POLL-3
+
+	/* send_async_usr() runs on Thread A.
+	 * Thread A needs to inform Thread C that *nums* packets are sending.
+	 */
+	send_async_usr(handle_t h_sess, void (*callback)(), wd_ctx_set_t set)
+	{
+		/* *nums* and *input* may be input parameters of
+		 * send_async_usr(), or be generated in send_async_usr().
+		 * It depends on user.
+		 */
+		for (i = 0; i < nums; i++) {
+			ret = wd_comp_async(h_sess, input, callback, set);
+			if (ret == -EBUSY) {
+				wd_comp_wait(h_sess);
+			}
+		}
+	}
+
+	/* poll_usr() runs on Thread C
+	 * Parameter *nums* is coming from Thread A and Thread B.
+	 * Returns *nums* if SUCCEED.
+	 * Returns negative value if FAIL.
+	 */
+	int poll_usr(int nums, unsigned int timeout, wd_ctx_set_t set_c)
+	{
+		int retry = 0, ret = 0;
+		int left = nums;
+
+		while ((left) && (retry < POLL_MAX)) {
+			ret = wd_comp_poll(left, timeout, set_c);
+			if (ret > 0) {
+				left = left - ret;
+				retry = 0;
+				wd_comp_wakeup(set_c);
+			} else if (ret == 0) {
+				/* Can't poll any packet. */
+				usleep(10);
+				ret = -EFAULT;
+				retry++;
+			} else if (ret == -ETIME) {
+				/* Timeout */
+				usleep(10);
+				retry++;
+			} else {
+				break;
+			}
+		}
+		if ((retry == POLL_MAX) && ((ret < 0) && (ret != -ETIME))) {
+			printf("Failed to poll any packet from sess.\n");
+			return ret;
+		}
+		return nums;
+	}
+
+	/* Thread A: send_async_usr(h_sess_a, input, callback, set_a);
+	 * Thread B: send_async_usr(h_sess_b, input, callback, set_b);
+	 * Thread C: poll_usr(nums, timeout, set_c);
+	 * set_c equals to set_a OR set_b.
+	 */
 ```
