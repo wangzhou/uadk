@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/poll.h>
@@ -135,7 +136,10 @@ struct sched_ctx_region *
 sample_get_ctx_range(struct wd_comp_arg *req,
 		     struct sched_ctx_region (*ctx_map)[Y_BUTT])
 {
-	return NULL;
+	int x = req->flag;
+	int y = req->status;
+
+	return &ctx_map[x][y];
 }
 
 /**
@@ -144,8 +148,9 @@ sample_get_ctx_range(struct wd_comp_arg *req,
  * This function will be registered to the wd comp
  */
 handle_t sample_pick_next_ctx(struct wd_ctx_config *cfg,
-			      void* sched_ctx,
-			      struct wd_comp_arg *arg)
+			      void *sched_ctx,
+			      struct wd_comp_arg *req,
+			      int numa_id)
 {
 	int pos;
 	void *para = NULL;
@@ -154,7 +159,7 @@ handle_t sample_pick_next_ctx(struct wd_ctx_config *cfg,
 
 	sched_info = (struct sample_sched_info *)sched_ctx;
 
-	region = sample_get_ctx_range(req, sched_info->ctx_region);
+	region = sample_get_ctx_range(req, sched_info[numa_id].ctx_region);
 	if (!region) {
 		return (handle_t)NULL;
 	}
@@ -176,11 +181,14 @@ handle_t sample_pick_next_ctx(struct wd_ctx_config *cfg,
 __u32 sample_poll_policy(struct wd_ctx_config *cfg, void *sched_ctx)
 {
 	int numa_id;
-	struct sample_sched_info *sched_info = NULL;
+	struct sample_sched_info *sched_info;
+
+	sched_info = (struct sample_sched_info *)sched_ctx;
 
 	for (numa_id = 0; numa_id < MAX_NUMA_NUM; numa_id++) {
-		sched_ops[g_sched_mode].poll_policy(cfg,
-						sched_info[numa_id].ctx_region);
+		if (sched_info[numa_id].valid) {
+			sched_ops[g_sched_mode].poll_policy(cfg, sched_info[numa_id].ctx_region);
+		}
 	}
 
 	return 0;
