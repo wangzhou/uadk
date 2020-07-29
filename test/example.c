@@ -47,7 +47,8 @@ static struct wd_sched sched;
 /* only 1 context is used */
 static handle_t sched_single_pick_next(struct wd_ctx_config *cfg,
 				       void *sched_ctx,
-				       struct wd_comp_req *req
+				       struct wd_comp_req *req,
+				       int numa_id
 				       )
 {
 	return ctx_conf.ctxs[0].ctx;
@@ -60,25 +61,26 @@ static __u32 sched_single_poll_policy(struct wd_ctx_config *cfg,
 	return 0;
 }
 
-static int init_config(int ctx_num, struct wd_sched *sched)
+/* init config for single context */
+static int init_single_ctx_config(int op_type,
+				  int ctx_mode,
+				  struct wd_sched *sched
+				  )
 {
-	int	ret, i;
+	int ret;
 
-	if (ctx_num <= 0)
-		return -EINVAL;
 	memset(&ctx_conf, 0, sizeof(struct wd_ctx_config));
-	ctx_conf.ctx_num = ctx_num;
-	ctx_conf.ctxs = calloc(1, sizeof(struct wd_ctx) * ctx_num);
+	ctx_conf.ctx_num = 1;
+	ctx_conf.ctxs = calloc(1, sizeof(struct wd_ctx));
 	if (!ctx_conf.ctxs)
 		return -ENOMEM;
-	for (i = 0; i < ctx_num; i++) {
-		/* related ctx type is defined in testcase */
-		ctx_conf.ctxs[i].ctx = wd_request_ctx(HISI_DEV_NODE);
-		if (!ctx_conf.ctxs[i].ctx) {
-			ret = -EINVAL;
-			goto out;
-		}
+	ctx_conf.ctxs[0].ctx = wd_request_ctx(HISI_DEV_NODE);
+	if (!ctx_conf.ctxs[0].ctx) {
+		ret = -EINVAL;
+		goto out;
 	}
+	ctx_conf.ctxs[0].op_type = op_type;
+	ctx_conf.ctxs[0].ctx_mode = ctx_mode;
 
 	sched->name = SCHED_SINGLE;
 	sched->sched_ctx_size = SCHED_NULL_CTX_SIZE;
@@ -87,8 +89,6 @@ static int init_config(int ctx_num, struct wd_sched *sched)
 	wd_comp_init(&ctx_conf, sched);
 	return 0;
 out:
-	for (; i > 0; i--)
-		wd_release_ctx(ctx_conf.ctxs[i].ctx);
 	free(ctx_conf.ctxs);
 	return ret;
 }
@@ -121,8 +121,7 @@ int test_comp_sync_once(int flag, int mode)
 	else if (flag & FLAG_GZIP)
 		sprintf(algs, "gzip");
 
-	init_config(1, &sched);
-	ctx_conf.ctxs[0].op_type = CTX_TYPE_COMP;
+	init_single_ctx_config(CTX_TYPE_COMP, CTX_MODE_SYNC, &sched);
 
 	memset(&req, 0, sizeof(struct wd_comp_req));
 	req.dst_len = sizeof(char) * TEST_WORD_LEN;
@@ -172,8 +171,7 @@ int test_comp_sync_once(int flag, int mode)
 	req.src_len = t;
 	req.dst = dst;
 	t = 0;
-	init_config(1, &sched);
-	ctx_conf.ctxs[0].op_type = CTX_TYPE_DECOMP;
+	init_single_ctx_config(CTX_TYPE_DECOMP, CTX_MODE_SYNC, &sched);
 
 	memset(&setup, 0, sizeof(struct wd_comp_sess_setup));
 	setup.mode = mode & MODE_STREAM;
@@ -238,8 +236,7 @@ int test_comp_async1_once(int flag, int mode)
 	else if (flag & FLAG_GZIP)
 		sprintf(algs, "gzip");
 
-	init_config(1, &sched);
-	ctx_conf.ctxs[0].op_type = CTX_TYPE_COMP;
+	init_single_ctx_config(CTX_TYPE_COMP, CTX_MODE_SYNC, &sched);
 
 	memset(&req, 0, sizeof(struct wd_comp_req));
 	req.dst_len = sizeof(char) * TEST_WORD_LEN;
@@ -297,8 +294,7 @@ int test_comp_async1_once(int flag, int mode)
 	req.src_len = t;
 	req.dst = dst;
 	t = 0;
-	init_config(1, &sched);
-	ctx_conf.ctxs[0].op_type = CTX_TYPE_DECOMP;
+	init_single_ctx_config(CTX_TYPE_DECOMP, CTX_MODE_SYNC, &sched);
 
 	memset(&setup, 0, sizeof(struct wd_comp_sess_setup));
 	setup.mode = mode & MODE_STREAM;
@@ -496,8 +492,7 @@ int test_comp_async2_once(int flag, int mode)
 
 	t = 0;
 
-	init_config(1, &sched);
-	ctx_conf.ctxs[0].op_type = CTX_TYPE_COMP;
+	init_single_ctx_config(CTX_TYPE_COMP, CTX_MODE_SYNC, &sched);
 
 	/* 1 thread for sending data, BLOCK mode */
 	ret = create_threads(0, 1, req);
@@ -520,7 +515,7 @@ int test_comp_async2_once(int flag, int mode)
 	req->src_len = t;
 	req->dst_len = TEST_WORD_LEN;
 	t = 0;
-	init_config(1, &sched);
+	init_single_ctx_config(CTX_TYPE_DECOMP, CTX_MODE_SYNC, &sched);
 	ctx_conf.ctxs[0].op_type = CTX_TYPE_DECOMP;
 
 	/* 1 thread for sending data, BLOCK mode */
