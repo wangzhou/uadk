@@ -47,25 +47,20 @@ static struct wd_sched sched;
 /* only 1 context is used */
 static handle_t sched_single_pick_next(struct wd_ctx_config *cfg,
 				       void *sched_ctx,
-				       struct wd_comp_req *req,
-				       int numa_id
-				       )
+				       struct wd_comp_req *req, int numa_id)
 {
 	return ctx_conf.ctxs[0].ctx;
 }
 
 static __u32 sched_single_poll_policy(struct wd_ctx_config *cfg,
-				      void *sched_ctx
-				      )
+				      void *sched_ctx)
 {
 	return 0;
 }
 
 /* init config for single context */
-static int init_single_ctx_config(int op_type,
-				  int ctx_mode,
-				  struct wd_sched *sched
-				  )
+static int init_single_ctx_config(int op_type, int ctx_mode,
+				  struct wd_sched *sched)
 {
 	int ret;
 
