@@ -92,6 +92,7 @@ static void uninit_config(void)
 {
 	int i;
 
+	wd_comp_uninit();
 	for (i = 0; i < ctx_conf.ctx_num; i++)
 		wd_release_ctx(ctx_conf.ctxs[i].ctx);
 	free(ctx_conf.ctxs);
@@ -141,22 +142,10 @@ int test_comp_sync_once(int flag, int mode)
 		ret = -EINVAL;
 		goto out_sess;
 	}
-	while (1) {
 		req.status = 0;
 		req.dst_len = TEST_WORD_LEN;
 		req.flag = FLAG_DEFLATE | FLAG_INPUT_FINISH;
 		ret = wd_do_comp(sess, &req);
-		if (req.status & STATUS_OUT_READY) {
-			memcpy(buf + t, req.dst - req.dst_len,
-				req.dst_len);
-			t += req.dst_len;
-			req.dst = dst;
-		}
-		if ((req.status & STATUS_OUT_DRAINED) &&
-		    (req.status & STATUS_IN_EMPTY) &&
-		    (req.flag & FLAG_INPUT_FINISH))
-			break;
-	}
 	wd_comp_free_sess(sess);
 	uninit_config();
 
@@ -175,25 +164,14 @@ int test_comp_sync_once(int flag, int mode)
 		ret = -EINVAL;
 		goto out_sess;
 	}
-	while (1) {
 		req.status = 0;
 		req.dst_len = TEST_WORD_LEN;
 		req.flag = FLAG_INPUT_FINISH;
 		ret = wd_do_comp(sess, &req);
 		if (ret < 0)
 			goto out_comp;
-		if (req.status & STATUS_OUT_READY) {
-			memcpy(buf + t, req.dst - req.dst_len,
-				req.dst_len);
-			t += req.dst_len;
-			req.dst = dst;
-		}
-		if ((req.status & STATUS_OUT_DRAINED) &&
-		    (req.status & STATUS_IN_EMPTY) &&
-		    (req.flag & FLAG_INPUT_FINISH))
-			break;
-	}
 	wd_comp_free_sess(sess);
+	uninit_config();
 
 	if (memcmp(buf, word, strlen(word))) {
 		printf("match failure! word:%s, buf:%s\n", word, buf);
