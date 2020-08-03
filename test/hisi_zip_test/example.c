@@ -106,16 +106,10 @@ int test_comp_sync_once(int flag, int mode)
 {
 	struct wd_comp_sess_setup	setup;
 	struct wd_comp_req	req;
-	handle_t	sess;
-	char	algs[60];
+	handle_t	h_sess;
 	char	buf[TEST_WORD_LEN];
 	void	*src, *dst;
 	int	ret = 0, t;
-
-	if (flag & FLAG_ZLIB)
-		sprintf(algs, "zlib");
-	else if (flag & FLAG_GZIP)
-		sprintf(algs, "gzip");
 
 	init_single_ctx_config(CTX_TYPE_COMP, CTX_MODE_SYNC, &sched);
 
@@ -136,17 +130,20 @@ int test_comp_sync_once(int flag, int mode)
 	t = 0;
 
 	memset(&setup, 0, sizeof(struct wd_comp_sess_setup));
-	setup.mode = mode & MODE_STREAM;
-	sess = wd_comp_alloc_sess(&setup);
-	if (!sess) {
+	if (flag & FLAG_ZLIB)
+		setup.alg_type = WD_ZLIB;
+	else if (flag & FLAG_GZIP)
+		setup.alg_type = WD_GZIP;
+	h_sess = wd_comp_alloc_sess(&setup);
+	if (!h_sess) {
 		ret = -EINVAL;
 		goto out_sess;
 	}
-		req.status = 0;
-		req.dst_len = TEST_WORD_LEN;
-		req.flag = FLAG_DEFLATE | FLAG_INPUT_FINISH;
-		ret = wd_do_comp(sess, &req);
-	wd_comp_free_sess(sess);
+	req.status = 0;
+	req.dst_len = TEST_WORD_LEN;
+	req.flag = FLAG_DEFLATE | FLAG_INPUT_FINISH;
+	ret = wd_do_comp(h_sess, &req);
+	wd_comp_free_sess(h_sess);
 	uninit_config();
 
 	/* prepare to decompress */
@@ -158,19 +155,22 @@ int test_comp_sync_once(int flag, int mode)
 	init_single_ctx_config(CTX_TYPE_DECOMP, CTX_MODE_SYNC, &sched);
 
 	memset(&setup, 0, sizeof(struct wd_comp_sess_setup));
-	setup.mode = mode & MODE_STREAM;
-	sess = wd_comp_alloc_sess(&setup);
-	if (!sess) {
+	if (flag & FLAG_ZLIB)
+		setup.alg_type = WD_ZLIB;
+	else if (flag & FLAG_GZIP)
+		setup.alg_type = WD_GZIP;
+	h_sess = wd_comp_alloc_sess(&setup);
+	if (!h_sess) {
 		ret = -EINVAL;
 		goto out_sess;
 	}
-		req.status = 0;
-		req.dst_len = TEST_WORD_LEN;
-		req.flag = FLAG_INPUT_FINISH;
-		ret = wd_do_comp(sess, &req);
-		if (ret < 0)
-			goto out_comp;
-	wd_comp_free_sess(sess);
+	req.status = 0;
+	req.dst_len = TEST_WORD_LEN;
+	req.flag = FLAG_INPUT_FINISH;
+	ret = wd_do_comp(h_sess, &req);
+	if (ret < 0)
+		goto out_comp;
+	wd_comp_free_sess(h_sess);
 	uninit_config();
 
 	if (memcmp(buf, word, strlen(word))) {
@@ -187,7 +187,7 @@ int test_comp_sync_once(int flag, int mode)
 	free(dst);
 	return 0;
 out_comp:
-	wd_comp_free_sess(sess);
+	wd_comp_free_sess(h_sess);
 out_sess:
 	free(req.src);
 out:
@@ -198,16 +198,10 @@ int test_comp_async1_once(int flag, int mode)
 {
 	struct wd_comp_sess_setup	setup;
 	struct wd_comp_req req;
-	handle_t	sess;
-	char	algs[60];
+	handle_t	h_sess;
 	char	buf[TEST_WORD_LEN];
 	void	*src, *dst;
 	int	ret = 0, t;
-
-	if (flag & FLAG_ZLIB)
-		sprintf(algs, "zlib");
-	else if (flag & FLAG_GZIP)
-		sprintf(algs, "gzip");
 
 	init_single_ctx_config(CTX_TYPE_COMP, CTX_MODE_SYNC, &sched);
 
@@ -228,9 +222,12 @@ int test_comp_async1_once(int flag, int mode)
 	t = 0;
 
 	memset(&setup, 0, sizeof(struct wd_comp_sess_setup));
-	setup.mode = mode & MODE_STREAM;
-	sess = wd_comp_alloc_sess(&setup);
-	if (!sess) {
+	if (flag & FLAG_ZLIB)
+		setup.alg_type = WD_ZLIB;
+	else if (flag & FLAG_GZIP)
+		setup.alg_type = WD_GZIP;
+	h_sess = wd_comp_alloc_sess(&setup);
+	if (!h_sess) {
 		ret = -EINVAL;
 		goto out_sess;
 	}
@@ -238,7 +235,7 @@ int test_comp_async1_once(int flag, int mode)
 		req.status = 0;
 		req.dst_len = TEST_WORD_LEN;
 		req.flag = FLAG_DEFLATE | FLAG_INPUT_FINISH;
-		ret = wd_do_comp_async(sess, &req);
+		ret = wd_do_comp_async(h_sess, &req);
 		if (ret < 0)
 			goto out_comp;
 		if (req.status & STATUS_OUT_READY) {
@@ -258,7 +255,7 @@ int test_comp_async1_once(int flag, int mode)
 		    (req.flag & FLAG_INPUT_FINISH))
 			break;
 	}
-	wd_comp_free_sess(sess);
+	wd_comp_free_sess(h_sess);
 	uninit_config();
 
 	/* prepare to decompress */
@@ -270,9 +267,12 @@ int test_comp_async1_once(int flag, int mode)
 	init_single_ctx_config(CTX_TYPE_DECOMP, CTX_MODE_SYNC, &sched);
 
 	memset(&setup, 0, sizeof(struct wd_comp_sess_setup));
-	setup.mode = mode & MODE_STREAM;
-	sess = wd_comp_alloc_sess(&setup);
-	if (!sess) {
+	if (flag & FLAG_ZLIB)
+		setup.alg_type = WD_ZLIB;
+	else if (flag & FLAG_GZIP)
+		setup.alg_type = WD_GZIP;
+	h_sess = wd_comp_alloc_sess(&setup);
+	if (!h_sess) {
 		ret = -EINVAL;
 		goto out_sess;
 	}
@@ -280,7 +280,7 @@ int test_comp_async1_once(int flag, int mode)
 		req.status = 0;
 		req.dst_len = TEST_WORD_LEN;
 		req.flag = FLAG_INPUT_FINISH;
-		ret = wd_do_comp_async(sess, &req);
+		ret = wd_do_comp_async(h_sess, &req);
 		if (ret < 0)
 			goto out_comp;
 		if (req.status & STATUS_OUT_READY) {
@@ -300,7 +300,7 @@ int test_comp_async1_once(int flag, int mode)
 		    (req.flag & FLAG_INPUT_FINISH))
 			break;
 	}
-	wd_comp_free_sess(sess);
+	wd_comp_free_sess(h_sess);
 
 	if (memcmp(buf, word, strlen(word))) {
 		printf("match failure! word:%s, buf:%s\n", word, buf);
@@ -316,7 +316,7 @@ int test_comp_async1_once(int flag, int mode)
 	free(dst);
 	return 0;
 out_comp:
-	wd_comp_free_sess(sess);
+	wd_comp_free_sess(h_sess);
 out_sess:
 	free(req.src);
 out:
@@ -353,19 +353,18 @@ static void *wait_func(void *arg)
 {
 	thread_data_t *data = (thread_data_t *)arg;
 	struct wd_comp_sess_setup	setup;
-	handle_t	sess;
+	handle_t	h_sess;
 	int	ret = 0;
 
 	memset(&setup, 0, sizeof(struct wd_comp_sess_setup));
-	setup.mode = data->mode & MODE_STREAM;
-	sess = wd_comp_alloc_sess(&setup);
-	if (!sess)
+	h_sess = wd_comp_alloc_sess(&setup);
+	if (!h_sess)
 		goto out;
 
 	data->req->status = 0;
 	data->req->dst_len = TEST_WORD_LEN;
 	data->req->flag = FLAG_INPUT_FINISH;
-	ret = wd_do_comp_async(sess, data->req);
+	ret = wd_do_comp_async(h_sess, data->req);
 	if (ret < 0)
 		goto out_comp;
 	pthread_mutex_lock(&mutex);
@@ -375,7 +374,7 @@ static void *wait_func(void *arg)
 	pthread_mutex_unlock(&mutex);
 
 out_comp:
-	wd_comp_free_sess(sess);
+	wd_comp_free_sess(h_sess);
 out:
 	pthread_exit(NULL);
 }
