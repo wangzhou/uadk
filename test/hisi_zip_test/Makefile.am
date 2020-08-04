@@ -6,8 +6,8 @@ bin_PROGRAMS=test_sva_perf test_sva_bind \
 test_sva_perf_SOURCES=test_sva_perf.c test_lib.c ../../drv/hisi_qm_udrv.c ../../include/hisi_qm_udrv.h
 test_sva_bind_SOURCES=test_sva_bind.c test_lib.c ../../drv/hisi_qm_udrv.c ../../include/hisi_qm_udrv.h
 
-test_sva_perf_LDADD=../../.libs/libwd.a
-test_sva_bind_LDADD=../../.libs/libwd.a
+test_sva_perf_LDADD=../../.libs/libwd.a ../../.libs/libhisi_zip.a
+test_sva_bind_LDADD=../../.libs/libwd.a ../../.libs/libhisi_zip.a
 
 # For statistics
 test_sva_perf_LDADD+=-lm
@@ -22,7 +22,9 @@ test_sva_bind_CPPFLAGS=-DUSE_ZLIB
 endif
 
 test_comp_SOURCES=test_comp.c
-test_comp_LDADD=../../.libs/libwd.a ../../.libs/libwd_comp.a
+test_comp_LDADD=../../.libs/libwd.a ../../.libs/libwd_comp.a \
+		../../.libs/libhisi_zip.a
 
 example_SOURCES = example.c
-example_LDADD = ../../.libs/libwd.a ../../.libs/libwd_comp.a -lpthread
+example_LDADD = ../../.libs/libwd.a ../../.libs/libwd_comp.a \
+		../../.libs/libhisi_zip.a -lpthread

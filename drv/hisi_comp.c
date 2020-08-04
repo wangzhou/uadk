@@ -1285,7 +1285,13 @@ int hisi_strm_inflate(struct wd_comp_sess_o *sess, struct wd_comp_strm *strm)
 }
 
 /* new code */
-int hisi_zip_init(struct wd_ctx_config *config, void *priv)
+#include "../include/drv/wd_comp_drv.h"
+
+struct hisi_zip_ctx {
+	struct wd_ctx_config	config;
+};
+
+static int hisi_zip_init(struct wd_ctx_config *config, void *priv)
 {
 	struct hisi_qm_priv qm_priv;
 	struct hisi_zip_ctx *zip_ctx = (struct hisi_zip_ctx *)priv;
@@ -1313,7 +1319,7 @@ out:
 	return ret;
 }
 
-void hisi_zip_exit(void *priv)
+static void hisi_zip_exit(void *priv)
 {
 	struct hisi_zip_ctx *zip_ctx = (struct hisi_zip_ctx *)priv;
 	struct wd_ctx_config *config = &zip_ctx->config;
@@ -1346,7 +1352,7 @@ void hisi_zip_exit(void *priv)
 #define lower_32_bits(addr) ((__u32)((__u64)(addr)))
 #define upper_32_bits(addr) ((__u32)((__u64)(addr) >> HZ_HADDR_SHIFT))
 
-int hisi_zip_comp_send(handle_t ctx, struct wd_comp_msg *msg)
+static int hisi_zip_comp_send(handle_t ctx, struct wd_comp_msg *msg)
 {
 	struct hisi_zip_sqe sqe;
 	__u8 flush_type;
@@ -1397,7 +1403,7 @@ int hisi_zip_comp_send(handle_t ctx, struct wd_comp_msg *msg)
 }
 
 
-int hisi_zip_comp_recv(handle_t ctx, struct wd_comp_msg *recv_msg)
+static int hisi_zip_comp_recv(handle_t ctx, struct wd_comp_msg *recv_msg)
 {
 	struct hisi_zip_sqe sqe;
 	int ret;
@@ -1443,3 +1449,14 @@ int hisi_zip_comp_recv(handle_t ctx, struct wd_comp_msg *recv_msg)
 
 }
 
+static struct wd_comp_driver hisi_zip = {
+	.drv_name		= "hisi_zip",
+	.alg_name		= "zlib\ngzip",
+	.drv_ctx_size		= sizeof(struct hisi_zip_ctx),
+	.init			= hisi_zip_init,
+	.exit			= hisi_zip_exit,
+	.comp_send		= hisi_zip_comp_send,
+	.comp_recv		= hisi_zip_comp_recv,
+};
+
+WD_COMP_SET_DRIVER(hisi_zip);
