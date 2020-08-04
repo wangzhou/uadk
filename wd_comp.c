@@ -673,9 +673,11 @@ void wd_comp_free_sess(handle_t h_sess)
 	free(sess);
 }
 
-#if 0
-static void fill_comp_msg(struct wd_comp_msg *msg, struct wd_comp_req *req)
+static int fill_comp_msg(struct wd_comp_msg *msg, struct wd_comp_req *req)
 {
+	msg->ctx_buf = calloc(1, HW_CTX_SIZE);
+	if (!msg->ctx_buf)
+		return -ENOMEM;
 	msg->avail_out = req->dst_len;
 	msg->src = req->src;
 	msg->dst = req->dst;
@@ -685,8 +687,8 @@ static void fill_comp_msg(struct wd_comp_msg *msg, struct wd_comp_req *req)
 	/* 是否首包 1: new start; 0: old */
 	msg->stream_pos = 1;
 	msg->status = 0;
+	return 0;
 }
-#endif
 
 int wd_do_comp(handle_t h_sess, struct wd_comp_req *req)
 {
@@ -700,12 +702,11 @@ int wd_do_comp(handle_t h_sess, struct wd_comp_req *req)
 
 	h_ctx = wd_comp_setting.sched.pick_next_ctx(config, sched_ctx, req, 0);
 
+	ret = fill_comp_msg(&msg, req);
+	if (ret < 0)
+		return ret;
 	memcpy(&msg.req, req, sizeof(struct wd_comp_req));
 	msg.alg_type = sess->alg_type;
-	msg.in_size = req->src_len;
-	/* FIXME: need to distinguish the first frame and the others */
-	msg.stream_pos = STREAM_NEW;
-	msg.flush_type = 1;
 
 	ret = wd_comp_setting.driver->comp_send(h_ctx, &msg);
 	if (ret < 0) {
@@ -724,13 +725,16 @@ int wd_do_comp(handle_t h_sess, struct wd_comp_req *req)
 				goto err_recv;
 			}
 		}
-	} while(ret < 0);
+	} while (ret < 0);
 
 	req->src_len = resp_msg.req.src_len;
 	req->dst_len = resp_msg.req.dst_len;
 
-err_recv:
+	free(msg.ctx_buf);
 	return 0;
+err_recv:
+	free(msg.ctx_buf);
+	return ret;
 
 }
 
@@ -745,6 +749,9 @@ int wd_do_comp_strm(handle_t sess, struct wd_comp_req *req)
 
 	h_ctx = wd_comp_setting.sched.pick_next_ctx(config, sched_ctx, req, 0);
 
+	ret = fill_comp_msg(&msg, req);
+	if (ret < 0)
+		return ret;
 	memcpy(&msg.req, req, sizeof(struct wd_comp_req));
 
 	/* fill trueth flag */
@@ -767,14 +774,17 @@ int wd_do_comp_strm(handle_t sess, struct wd_comp_req *req)
 				goto err_recv;
 			}
 		}
-	} while(ret < 0);
+	} while (ret < 0);
 
 	req->src_len = resp_msg.req.src_len;
 	req->dst_len = resp_msg.req.dst_len;
 	req->status = resp_msg.req.status;
 
-err_recv:
+	free(msg.ctx_buf);
 	return 0;
+err_recv:
+	free(msg.ctx_buf);
+	return ret;
 }
 
 int wd_do_comp_async(handle_t h_sess, struct wd_comp_req *req)
