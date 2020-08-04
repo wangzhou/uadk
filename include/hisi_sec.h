@@ -71,16 +71,6 @@ enum sec_cipher_dir {
 	SEC_CIPHER_DEC = 0x2,
 };
 
-static int g_digest_a_alg[WD_DIGEST_TYPE_MAX] = {
-	0, A_ALG_SM3, A_ALG_MD5, A_ALG_SHA1, A_ALG_SHA256, A_ALG_SHA224,
-	A_ALG_SHA384, A_ALG_SHA512, A_ALG_SHA512_224, A_ALG_SHA512_256
-};
-static int g_hmac_a_alg[WD_DIGEST_TYPE_MAX] = {
-	0, A_ALG_HMAC_SM3, A_ALG_HMAC_MD5, A_ALG_HMAC_SHA1,
-	A_ALG_HMAC_SHA256, A_ALG_HMAC_SHA224, A_ALG_HMAC_SHA384,
-	A_ALG_HMAC_SHA512, A_ALG_HMAC_SHA512_224, A_ALG_HMAC_SHA512_256
-};
-
 struct wd_cipher_msg {
 	__u8 alg_type;		/* Denoted by enum wcrypto_type */
 	__u8 alg;		/* Denoted by enum wcrypto_cipher_type */
