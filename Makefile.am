@@ -6,12 +6,17 @@ if WITH_LOG_FILE
 AM_CFLAGS+=-DWITH_LOG_FILE=\"$(with_log_file)\"
 endif
 
+if WD_STATIC_DRV
+AM_CFLAGS+=-DWD_STATIC_DRV
+endif
+
 lib_LTLIBRARIES=libwd.la libwd_comp.la libhisi_zip.la libwd_cipher.la
 
 libwd_la_SOURCES=wd.c wd.h wd_sched.c wd_sched.h bmm.c bmm.h smm.c smm.h
 
 libwd_comp_la_SOURCES=wd_comp.c user_sched_sample.c wd_comp.h wd_comp_drv.h
 libwd_comp_la_LIBADD= $(libwd_la_OBJECTS) -ldl
+#libwd_comp_a_CFLAGS=-DWD_STATIC_DRV
 
 libhisi_zip_la_SOURCES=drv/hisi_comp.c hisi_comp.h drv/hisi_qm_udrv.c \
 		hisi_qm_udrv.h wd_comp_drv.h wd_sched.c wd_sched.h smm.c smm.h

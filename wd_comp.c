@@ -329,6 +329,8 @@ struct wd_comp_setting {
 	struct wd_async_msg_pool pool;
 } wd_comp_setting;
 
+extern struct wd_comp_driver wd_comp_hisi_zip;
+
 #ifdef WD_STATIC_DRV
 static void wd_comp_set_static_drv(void)
 {
