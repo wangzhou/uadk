@@ -341,11 +341,6 @@ static void wd_comp_set_static_drv(void)
 	wd_comp_setting.driver = &wd_comp_hisi_zip;
 }
 #else
-void wd_comp_set_driver(struct wd_comp_driver *drv)
-{
-	wd_comp_setting.driver = drv;
-}
-
 static void __attribute__((constructor)) wd_comp_open_driver(void)
 {
 	void *driver;
@@ -356,6 +351,11 @@ static void __attribute__((constructor)) wd_comp_open_driver(void)
 		WD_ERR("Fail to open libhisi_comp.so\n");
 }
 #endif
+
+void wd_comp_set_driver(struct wd_comp_driver *drv)
+{
+	wd_comp_setting.driver = drv;
+}
 
 static int copy_config_to_global_setting(struct wd_ctx_config *cfg)
 {
