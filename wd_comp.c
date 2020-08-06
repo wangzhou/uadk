@@ -346,9 +346,9 @@ static void __attribute__((constructor)) wd_comp_open_driver(void)
 	void *driver;
 
 	/* Fix me: vendor driver should be put in /usr/lib/wd/ */
-	driver = dlopen("/usr/lib/wd/libhisi_comp.so", RTLD_NOW);
+	driver = dlopen("/usr/lib/wd/libhisi_zip.so", RTLD_NOW);
 	if (!driver)
-		WD_ERR("Fail to open libhisi_comp.so\n");
+		WD_ERR("Fail to open libhisi_zip.so\n");
 }
 #endif
 
@@ -553,7 +553,7 @@ int wd_comp_init(struct wd_ctx_config *config, struct wd_sched *sched)
 	int ret;
 
 	/* wd_comp_init() could only be invoked once for one process. */
-	if (wd_comp_setting.driver)
+	if (wd_comp_setting.config.ctx_num)
 		return 0;
 
 	if (!config || !sched)
@@ -633,7 +633,6 @@ void wd_comp_uninit(void)
 	free(wd_comp_setting.sched_ctx);
 
 	/* unset config, sched, driver */
-	wd_comp_setting.driver = NULL;
 	clear_sched_in_global_setting();
 	clear_config_in_global_setting();
 }
