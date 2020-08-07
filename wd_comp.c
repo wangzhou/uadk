@@ -17,7 +17,7 @@
 
 #define WD_POOL_MAX_ENTRIES		1024
 #define WD_HW_EACCESS 			62
-#define MAX_RETRY_COUNTS		200000000
+#define MAX_RETRY_COUNTS		1000	//200000000
 
 struct msg_pool {
 	struct wd_comp_msg msg[WD_POOL_MAX_ENTRIES];
@@ -124,7 +124,8 @@ static void clear_config_in_global_setting(void)
 /* Each context has a reqs pool. */
 static int wd_init_async_request_pool(struct wd_async_msg_pool *pool)
 {
-	int num;
+	struct msg_pool *p;
+	int i, num;
 
 	num = wd_comp_setting.config.ctx_num;
 
@@ -133,6 +134,11 @@ static int wd_init_async_request_pool(struct wd_async_msg_pool *pool)
 		return -ENOMEM;
 
 	pool->pool_nums = num;
+	for (i = 0; i < num; i++) {
+		p = &pool->pools[i];
+		p->head = 0;
+		p->tail = 0;
+	}
 
 	return 0;
 }
@@ -209,7 +215,7 @@ static struct wd_comp_req *wd_get_req_from_pool(struct wd_async_msg_pool *pool,
 	/* empty */
 	if (p->head == p->tail)
 		return NULL;
-	idx = msg->tag_id;
+	idx = msg->tag;
 	c_msg = &p->msg[idx];
 	msg->req.src = c_msg->req.src;
 	msg->req.dst = c_msg->req.dst;
@@ -248,7 +254,7 @@ static struct wd_comp_msg *wd_get_msg_from_pool(struct wd_async_msg_pool *pool,
 	/* get msg from msg_pool[] */
 	msg = &p->msg[p->tail];
 	memcpy(&msg->req, req, sizeof(struct wd_comp_req));
-	msg->tag_id = p->tail;
+	msg->tag = p->tail;
 	p->tail = t;
 
 	return msg;
@@ -374,6 +380,8 @@ handle_t wd_comp_alloc_sess(struct wd_comp_sess_setup *setup)
 {
 	struct wd_comp_sess *sess;
 
+	if (setup == NULL)
+		return (handle_t)0;
 	sess = calloc(1, sizeof(struct wd_comp_sess));
 	if (!sess)
 		return (handle_t)0;
@@ -383,6 +391,9 @@ handle_t wd_comp_alloc_sess(struct wd_comp_sess_setup *setup)
 
 void wd_comp_free_sess(handle_t h_sess)
 {
+	struct wd_comp_sess *sess = (struct wd_comp_sess *)h_sess;
+
+	free(sess);
 }
 
 static int fill_comp_msg(struct wd_comp_msg *msg, struct wd_comp_req *req)
@@ -443,6 +454,7 @@ int wd_do_comp(handle_t h_sess, struct wd_comp_req *req)
 	req->status = STATUS_OUT_DRAINED | STATUS_OUT_READY | STATUS_IN_EMPTY;
 	req->flag = FLAG_INPUT_FINISH;
 
+	free(msg.ctx_buf);
 	return 0;
 err_recv:
 	free(msg.ctx_buf);
