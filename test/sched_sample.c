@@ -58,7 +58,7 @@ struct sample_sched_info {
  * @poll_policy: the polling policy.
  */
 struct sched_operator {
-	void (*get_para)(void *req, void*para);
+	void (*get_para)(void *req, void *para);
 	int (*get_next_pos)(struct sched_ctx_region *region, void *para);
 	__u32 (*poll_policy)(struct wd_ctx_config *cfg,
 			     struct sched_ctx_region **region);
@@ -88,7 +88,8 @@ static void sample_get_para_rr(void *req, void *para)
 /**
  * sample_get_next_pos_rr - Get next resource pos by RR schedule. The second para is reserved for future.
  */
-static int sample_get_next_pos_rr(struct sched_ctx_region *region, void *para) {
+static int sample_get_next_pos_rr(struct sched_ctx_region *region, void *para) 
+{
 	int pos;
 
 	pthread_mutex_lock(&region->mutex);
@@ -150,7 +151,7 @@ struct sched_operator g_sched_ops[SCHED_POLICY_BUTT] = {
 /**
  * sample_sched_get_ctx_range - Get ctx range from ctx_map by the wd comp arg
  */
-static struct sched_ctx_region* sample_sched_get_ctx_range(struct sched_key *key)
+static struct sched_ctx_region *sample_sched_get_ctx_range(struct sched_key *key)
 {
 	if (g_sched_info[key->numa_id].ctx_region[key->mode][key->type].valid) {
 		return &g_sched_info[key->numa_id].ctx_region[key->mode][key->type];
