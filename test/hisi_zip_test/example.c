@@ -24,6 +24,26 @@
 #define SCHED_SINGLE		"sched_single"
 #define SCHED_NULL_CTX_SIZE	4	// sched_ctx_size can't be set as 0
 
+#define RUN_TEST(func, name, flag, ret)			\
+	do {						\
+		char	str[60];			\
+							\
+		str[0] = '\0';				\
+		strcpy(str, name);			\
+		strcat(str, " with");			\
+		if (flag & FLAG_ZLIB)			\
+			strcat(str, " ZLIB.\n");	\
+		else					\
+			strcat(str, " GZIP.\n");	\
+		ret = func(flag);			\
+		if (ret < 0) {				\
+			printf("Fail to run %s", str);	\
+			return ret;			\
+		}					\
+		printf("Pass %s", str);			\
+	} while (0)
+
+
 struct getcpu_cache {
 	unsigned long blob[128/sizeof(long)];
 };
@@ -235,11 +255,8 @@ int test_comp_sync_once(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(dst, word, strlen(word))) {
+	if (memcmp(dst, word, strlen(word)))
 		printf("match failure! word:%s, dst:%s\n", word, dst);
-	} else {
-		printf("Pass compress test in single buffer.\n");
-	}
 
 	free(src);
 	free(dst);
@@ -319,11 +336,8 @@ int test_comp_sync_multi_1(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(dst, word, strlen(word))) {
+	if (memcmp(dst, word, strlen(word)))
 		printf("match failure! word:%s, dst:%s\n", word, dst);
-	} else {
-		printf("Pass compress test in single buffer.\n");
-	}
 
 	free(src);
 	free(dst);
@@ -403,11 +417,8 @@ int test_comp_sync_multi_2(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(dst, word, strlen(word))) {
+	if (memcmp(dst, word, strlen(word)))
 		printf("match failure! word:%s, dst:%s\n", word, dst);
-	} else {
-		printf("Pass compress test in single buffer.\n");
-	}
 
 	free(src);
 	free(dst);
@@ -487,11 +498,8 @@ int test_comp_sync_multi_3(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(dst, word, strlen(word))) {
+	if (memcmp(dst, word, strlen(word)))
 		printf("match failure! word:%s, dst:%s\n", word, dst);
-	} else {
-		printf("Pass compress test in single buffer.\n");
-	}
 
 	free(src);
 	free(dst);
@@ -617,11 +625,8 @@ int test_comp_async1_once(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(buf, word, strlen(word))) {
+	if (memcmp(buf, word, strlen(word)))
 		printf("match failure! word:%s, buf:%s\n", word, buf);
-	} else {
-		printf("Pass compress test in single buffer.\n");
-	}
 
 	free(src);
 	free(dst);
@@ -823,8 +828,6 @@ int test_comp_async2_once(int flag)
 
 	uninit_config();
 
-	printf("Pass compress test in single buffer.\n");
-
 	free(src);
 	free(dst);
 	return 0;
@@ -840,35 +843,11 @@ int main(int argc, char **argv)
 {
 	int ret;
 
-	ret = test_comp_sync_once(FLAG_ZLIB);
-	if (ret < 0) {
-		printf("Fail to run test_comp_sync_once() with ZLIB.\n");
-		return ret;
-	}
-	ret = test_comp_sync_multi_1(FLAG_ZLIB);
-	if (ret < 0) {
-		printf("Fail to run test_comp_sync_multi_1() with ZLIB.\n");
-		return ret;
-	}
-	ret = test_comp_sync_multi_2(FLAG_ZLIB);
-	if (ret < 0) {
-		printf("Fail to run test_comp_sync_multi_2() with ZLIB.\n");
-		return ret;
-	}
-	ret = test_comp_sync_multi_3(FLAG_ZLIB);
-	if (ret < 0) {
-		printf("Fail to run test_comp_sync_multi_2() with ZLIB.\n");
-		return ret;
-	}
-	ret = test_comp_async1_once(FLAG_ZLIB);
-	if (ret < 0) {
-		printf("Fail to run test_comp_async1_once() with ZLIB.\n");
-		return ret;
-	}
-	ret = test_comp_async2_once(FLAG_ZLIB);
-	if (ret < 0) {
-		printf("Fail to run test_comp_async2_once() with ZLIB.\n");
-		return ret;
-	}
+	RUN_TEST(test_comp_sync_once, "sync_once", FLAG_ZLIB, ret);
+	RUN_TEST(test_comp_sync_multi_1, "sync_multi 1", FLAG_ZLIB, ret);
+	RUN_TEST(test_comp_sync_multi_2, "sync_multi 2", FLAG_ZLIB, ret);
+	RUN_TEST(test_comp_sync_multi_3, "sync_multi 3", FLAG_ZLIB, ret);
+	RUN_TEST(test_comp_async1_once, "async 1", FLAG_ZLIB, ret);
+	RUN_TEST(test_comp_async2_once, "async 2", FLAG_ZLIB, ret);
 	return 0;
 }
