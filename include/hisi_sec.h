@@ -66,6 +66,18 @@ enum {
 	AUTH_MAC_VERIFY,
 };
 
+enum {
+	AI_GEN_INNER,
+	AI_GEN_IVIN_ADDR,
+	AI_GEN_CAL_IV_ADDR,
+	AI_GEN_TRNG,
+};
+
+enum {
+	AUTHPAD_PAD,
+	AUTHPAD_NOPAD,
+};
+
 enum sec_cipher_dir {
 	SEC_CIPHER_ENC = 0x1,
 	SEC_CIPHER_DEC = 0x2,
@@ -75,4 +87,4 @@ struct hisi_sec_ctx {
 	struct wd_ctx_config config;
 };
 
-#endif	/* __HISI_SEC_H */
+#endif /* __HISI_SEC_H */
