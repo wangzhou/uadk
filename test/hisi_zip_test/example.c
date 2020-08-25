@@ -261,12 +261,14 @@ int test_comp_sync_once_1(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(dst, word, strlen(word)))
+	if (memcmp(dst, word, strlen(word))) {
 		printf("match failure! word:%s, dst:%s\n", word, (char *)dst);
+		ret = -EFAULT;
+	}
 
 	free(src);
 	free(dst);
-	return 0;
+	return ret;
 out_comp:
 	wd_comp_free_sess(h_sess);
 out_sess:
@@ -344,13 +346,15 @@ int test_comp_sync_once_2(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(dst, src, BUF_64MB))
+	if (memcmp(dst, src, BUF_64MB)) {
 		printf("match failure!\n");
+		ret = -EFAULT;
+	}
 	free(buf);
 	free(src);
 	free(dst);
 
-	return 0;
+	return ret;
 out_comp:
 	wd_comp_free_sess(h_sess);
 out_sess:
@@ -429,12 +433,14 @@ int test_comp_sync_multi_1(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(dst, word, strlen(word)))
+	if (memcmp(dst, word, strlen(word))) {
 		printf("match failure! word:%s, dst:%s\n", word, (char *)dst);
+		ret = -EFAULT;
+	}
 
 	free(src);
 	free(dst);
-	return 0;
+	return ret;
 out_comp:
 	wd_comp_free_sess(h_sess);
 out_sess:
@@ -510,12 +516,14 @@ int test_comp_sync_multi_2(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(dst, word, strlen(word)))
+	if (memcmp(dst, word, strlen(word))) {
 		printf("match failure! word:%s, dst:%s\n", word, (char *)dst);
+		ret = -EFAULT;
+	}
 
 	free(src);
 	free(dst);
-	return 0;
+	return ret;
 out_comp:
 	wd_comp_free_sess(h_sess);
 out_sess:
@@ -591,12 +599,14 @@ int test_comp_sync_multi_3(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(dst, word, strlen(word)))
+	if (memcmp(dst, word, strlen(word))) {
 		printf("match failure! word:%s, dst:%s\n", word, (char *)dst);
+		ret = -EFAULT;
+	}
 
 	free(src);
 	free(dst);
-	return 0;
+	return ret;
 out_comp:
 	wd_comp_free_sess(h_sess);
 out_sess:
@@ -708,13 +718,14 @@ int test_comp_stream(int flag)
 
 	if (memcmp(buf, word, strlen(word))) {
 		printf("stream match failure! word:%s, buf:%s\n", word, buf);
+		ret = -EFAULT;
 	} else {
 		printf("Pass compress stream test!\n");
 	}
 
 	free(src);
 	free(dst);
-	return 0;
+	return ret;
 out_comp:
 	wd_comp_free_sess(h_sess);
 out_sess:
@@ -839,12 +850,14 @@ int test_comp_async1_once(int flag)
 	wd_comp_free_sess(h_sess);
 	uninit_config();
 
-	if (memcmp(buf, word, strlen(word)))
+	if (memcmp(buf, word, strlen(word))) {
 		printf("match failure! word:%s, buf:%s\n", word, buf);
+		ret = -EFAULT;
+	}
 
 	free(src);
 	free(dst);
-	return 0;
+	return ret;
 out_comp:
 	wd_comp_free_sess(h_sess);
 out_sess:
