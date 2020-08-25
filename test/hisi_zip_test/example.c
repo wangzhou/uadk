@@ -77,7 +77,8 @@ static handle_t sched_single_pick_next(struct wd_ctx_config *cfg, void *req, voi
 static __u32 sched_single_poll_policy(struct wd_ctx_config *cfg)
 {
 	int ret;
-	int count = 0;
+	__u32 count = 0;
+
 	ret = wd_comp_poll_ctx(ctx_conf.ctxs[0].ctx, 1, &count);
 	if (ret != 1)
 		return -EFAULT;
@@ -260,7 +261,7 @@ int test_comp_sync_once_1(int flag)
 	uninit_config();
 
 	if (memcmp(dst, word, strlen(word)))
-		printf("match failure! word:%s, dst:%s\n", word, dst);
+		printf("match failure! word:%s, dst:%s\n", word, (char *)dst);
 
 	free(src);
 	free(dst);
@@ -428,7 +429,7 @@ int test_comp_sync_multi_1(int flag)
 	uninit_config();
 
 	if (memcmp(dst, word, strlen(word)))
-		printf("match failure! word:%s, dst:%s\n", word, dst);
+		printf("match failure! word:%s, dst:%s\n", word, (char *)dst);
 
 	free(src);
 	free(dst);
@@ -509,7 +510,7 @@ int test_comp_sync_multi_2(int flag)
 	uninit_config();
 
 	if (memcmp(dst, word, strlen(word)))
-		printf("match failure! word:%s, dst:%s\n", word, dst);
+		printf("match failure! word:%s, dst:%s\n", word, (char *)dst);
 
 	free(src);
 	free(dst);
@@ -590,7 +591,7 @@ int test_comp_sync_multi_3(int flag)
 	uninit_config();
 
 	if (memcmp(dst, word, strlen(word)))
-		printf("match failure! word:%s, dst:%s\n", word, dst);
+		printf("match failure! word:%s, dst:%s\n", word, (char *)dst);
 
 	free(src);
 	free(dst);
