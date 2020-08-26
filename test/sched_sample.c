@@ -61,9 +61,9 @@ struct sample_sched_info {
 struct sched_operator {
 	void (*get_para)(void *req, void *para);
 	int (*get_next_pos)(struct sched_ctx_region *region, void *para);
-	__u32 (*poll_policy)(struct wd_ctx_config *cfg,
+	int (*poll_policy)(struct wd_ctx_config *cfg,
 			     struct sched_ctx_region **region);
-	__u32 (*poll_func)(handle_t h_ctx, __u32 num);
+	int (*poll_func)(handle_t h_ctx, __u32 num);
 };
 
 /* Service type num, config by user through init. */
@@ -118,8 +118,8 @@ static int sample_get_next_pos_rr(struct sched_ctx_region *region, void *para)
 	return pos;
 }
 
-static __u32 sample_poll_policy_rr(struct wd_ctx_config *cfg,
-				   struct sched_ctx_region **region)
+static int sample_poll_policy_rr(struct wd_ctx_config *cfg,
+				 struct sched_ctx_region **region)
 {
 	int i, j;
 	int begin, end;
@@ -209,7 +209,7 @@ handle_t sample_sched_pick_next_ctx(struct wd_ctx_config *cfg,
 /**
  * sample_poll_policy - The polling policy matches the pick next ctx
  */
-__u32 sample_sched_poll_policy(struct wd_ctx_config *cfg)
+int sample_sched_poll_policy(struct wd_ctx_config *cfg)
 {
 	int numa_id;
 
@@ -233,7 +233,7 @@ __u32 sample_sched_poll_policy(struct wd_ctx_config *cfg)
  * The shedule indexed mode is NUMA -> MODE -> TYPE -> [BEGIN : END],
  * then select one index from begin to end.
  */
-__u32 sample_sched_fill_region(int numa_id, int mode, int type, int begin, int end)
+int sample_sched_fill_region(int numa_id, int mode, int type, int begin, int end)
 {
 	if ((mode >= SCHED_MODE_BUTT) || (type >= g_sched_type_num)) {
 		printf("ERROR: %s para err: mode=%d, type=%d\n", __FUNCTION__, mode, type);
@@ -271,7 +271,7 @@ int sample_sched_operator_cfg(struct sched_operator *op)
 /**
  * sample_sched_init - initialize the global sched info
  */
-__u32 sample_sched_init(__u8 sched_type, int type_num, user_poll_func func)
+int sample_sched_init(__u8 sched_type, int type_num, user_poll_func func)
 {
 	int i, j;
 
@@ -307,7 +307,7 @@ err_out:
 }
 
 /**
- * sample_sched_init - Release schedule memory.
+ * sample_sched_release - Release schedule memory.
  */
 void sample_sched_release()
 {
