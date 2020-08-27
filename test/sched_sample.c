@@ -14,9 +14,9 @@
 #include <pthread.h>
 #include "sched_sample.h"
 
-#define MAX_CTX_NUM 1024
 #define MAX_NUMA_NUM 4
 #define CTX_NUM_OF_NUMA 100
+#define MAX_POLL_TIMES 10000
 
 enum sched_region_mode {
 	SCHED_MODE_SYNC = 0,
@@ -43,12 +43,10 @@ struct sched_ctx_region {
  * @ctx_region: define the map for the comp ctxs, using for quickly search.
 				the x range: two(sync and async), the y range: two(comp and uncomp)
 				the map[x][y]'s value is the ctx begin and end pos.
- * @last_pos: record the last one pos which be distributed in different type ctxs.
- * @count: record the req count of ccontex.
+ * @valid: the region used flag.
  */
 struct sample_sched_info {
 	struct sched_ctx_region *ctx_region[SCHED_MODE_BUTT];
-	int count[MAX_CTX_NUM];
 	bool valid;
 };
 
@@ -62,8 +60,9 @@ struct sched_operator {
 	void (*get_para)(void *req, void *para);
 	int (*get_next_pos)(struct sched_ctx_region *region, void *para);
 	int (*poll_policy)(struct wd_ctx_config *cfg,
-			     struct sched_ctx_region **region);
-	int (*poll_func)(handle_t h_ctx, __u32 num);
+			   struct sched_ctx_region **region,
+			   __u32 expect,
+			   __u32 *count);
 };
 
 /* Service type num, config by user through init. */
@@ -89,7 +88,7 @@ static void sample_get_para_rr(void *req, void *para)
 /**
  * sample_get_next_pos_rr - Get next resource pos by RR schedule. The second para is reserved for future.
  */
-static int sample_get_next_pos_rr(struct sched_ctx_region *region, void *para) 
+static int sample_get_next_pos_rr(struct sched_ctx_region *region, void *para)
 {
 	int pos;
 
@@ -110,7 +109,6 @@ static int sample_get_next_pos_rr(struct sched_ctx_region *region, void *para)
 			__FUNCTION__, pos, region->begin, region->end);
 		pos = region->begin;
 	}
-
 	region->last = pos;
 
 	pthread_mutex_unlock(&region->mutex);
@@ -119,10 +117,17 @@ static int sample_get_next_pos_rr(struct sched_ctx_region *region, void *para)
 }
 
 static int sample_poll_policy_rr(struct wd_ctx_config *cfg,
-				 struct sched_ctx_region **region)
+				 struct sched_ctx_region **region,
+				 __u32 expect,
+				 __u32 *count)
 {
-	int i, j;
+	__u32 poll_num = 0;
+	int loop_time = 0;
 	int begin, end;
+	int i, j;
+	int ret;
+
+	*count = 0;
 
 	/* Traverse the async ctx */
 	for (i = 0; i < g_sched_type_num; i++) {
@@ -134,7 +139,20 @@ static int sample_poll_policy_rr(struct wd_ctx_config *cfg,
 		end = region[SCHED_MODE_ASYNC][i].end;
 		for (j = begin; j <= end; j++) {
 			/* RR schedule, one time poll one */
-			g_sched_user_poll(cfg->ctxs[j].ctx, 1);
+			ret = g_sched_user_poll(cfg->ctxs[j].ctx, 1, &poll_num);
+			if (ret) {
+				return SCHED_ERROR;
+			}
+
+			*count += poll_num;
+			loop_time++;
+
+			/* If poll_num always be zero by unknow reason. This will be endless loop,
+			   we must add the escape way by recording the loop count, if it is bigger
+			   than MAX_POLL_TIMES, must stop and return the pool num */
+			if (*count >= expect || loop_time >= MAX_POLL_TIMES) {
+				return SCHED_SUCCESS;
+			}
 		}
 	}
 
@@ -201,21 +219,24 @@ handle_t sample_sched_pick_next_ctx(struct wd_ctx_config *cfg,
 	g_sched_ops[g_sched_policy].get_para(req, NULL);
 	pos = g_sched_ops[g_sched_policy].get_next_pos(region, NULL);
 
-	g_sched_info->count[pos]++;
-
 	return cfg->ctxs[pos].ctx;
 }
 
 /**
  * sample_poll_policy - The polling policy matches the pick next ctx
  */
-int sample_sched_poll_policy(struct wd_ctx_config *cfg)
+int sample_sched_poll_policy(struct wd_ctx_config *cfg, __u32 expect, __u32 *count)
 {
 	int numa_id;
 
+	if (!count) {
+		printf("ERROR: %s the count is NULL !\n", __FUNCTION__);
+		return SCHED_PARA_INVALID;
+	}
+
 	for (numa_id = 0; numa_id < MAX_NUMA_NUM; numa_id++) {
 		if (g_sched_info[numa_id].valid) {
-			g_sched_ops[g_sched_policy].poll_policy(cfg, g_sched_info[numa_id].ctx_region);
+			g_sched_ops[g_sched_policy].poll_policy(cfg, g_sched_info[numa_id].ctx_region, expect, count);
 		}
 	}
 
@@ -262,7 +283,6 @@ int sample_sched_operator_cfg(struct sched_operator *op)
 
 	g_sched_ops[g_sched_policy].get_next_pos = op->get_next_pos;
 	g_sched_ops[g_sched_policy].get_para = op->get_para;
-	g_sched_ops[g_sched_policy].poll_func = op->poll_func;
 	g_sched_ops[g_sched_policy].poll_policy = op->poll_policy;
 
 	return SCHED_SUCCESS;
