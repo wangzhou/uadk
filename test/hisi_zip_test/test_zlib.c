@@ -25,6 +25,7 @@ int hizip_check_output(void *buf, size_t size, size_t *checked,
 
 	stream.next_out = out_buffer;
 	stream.avail_out = out_buf_size;
+fprintf(stderr, "#%s, %d, avail_in:0x%x, avail_out:0x%x\n", __func__, __LINE__, stream.avail_in, stream.avail_out);
 
 	/* Pass -15 to skip parsing of header, since we have raw data. */
 	ret = inflateInit2(&stream, -15);
@@ -37,6 +38,7 @@ int hizip_check_output(void *buf, size_t size, size_t *checked,
 	do {
 		ret = inflate(&stream, Z_NO_FLUSH);
 		if (ret < 0 || ret == Z_NEED_DICT) {
+fprintf(stderr, "#%s, %d\n", __func__, __LINE__);
 			WD_ERR("zlib error %d - %s\n", ret, stream.msg);
 			ret = -ENOSR;
 			break;
@@ -47,6 +49,7 @@ int hizip_check_output(void *buf, size_t size, size_t *checked,
 		/* compare_output should print diagnostic messages. */
 		if (ret2) {
 			ret = Z_STREAM_ERROR;
+fprintf(stderr, "#%s, %d, ret:%d\n", __func__, __LINE__, ret);
 			break;
 		}
 
@@ -55,6 +58,7 @@ int hizip_check_output(void *buf, size_t size, size_t *checked,
 			stream.avail_out = out_buf_size;
 		}
 	} while (ret != Z_STREAM_END);
+fprintf(stderr, "#%s, %d, ret:%d\n", __func__, __LINE__, ret);
 
 	if (ret == Z_STREAM_END || ret == Z_OK) {
 		*checked = stream.total_out;

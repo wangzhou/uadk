@@ -28,11 +28,122 @@ struct priv_options {
 	unsigned long faults;
 };
 
+#ifdef SWITCH_NEW_INTERFACE
+struct priv_context {
+	struct hizip_test_info info;
+	struct priv_options *opts;
+};
+#else
 struct priv_context {
 	struct hizip_test_context ctx;
 	struct priv_options *opts;
 };
+#endif
 
+#ifdef SWITCH_NEW_INTERFACE
+static int run_one_child(struct priv_options *opts)
+{
+	void *in_buf, *out_buf;
+	struct priv_context priv_ctx;
+	struct hizip_test_info save_info;
+	struct hizip_test_info *info = &priv_ctx.info;
+	struct test_options *copts = &opts->common;
+	struct wd_sched sched;
+	int i, ret = 0;
+
+fprintf(stderr, "#%s, %d, total_len:%d\n", __func__, __LINE__, copts->total_len);
+	memset(&priv_ctx, 0, sizeof(struct priv_context));
+	priv_ctx.opts = opts;
+
+	info->opts = copts;
+	info->total_len = copts->total_len;
+
+	in_buf = info->in_buf = mmap_alloc(copts->total_len);
+	if (!in_buf) {
+		ret = -ENOMEM;
+		goto out_inbuf;
+	}
+	out_buf = info->out_buf = mmap_alloc(copts->total_len * EXPANSION_RATIO);
+	if (!out_buf) {
+		ret = -ENOMEM;
+		goto out_outbuf;
+	}
+	info->req.src = in_buf;
+	info->req.dst = out_buf;
+	info->req.src_len = copts->total_len;
+	info->req.dst_len = copts->total_len * EXPANSION_RATIO;
+	hizip_prepare_random_input_data(info);
+
+	ret = init_ctx_config(copts, &sched, info);
+	if (ret < 0) {
+		WD_ERR("hizip init fails\n");
+		goto out_ctx;
+	}
+fprintf(stderr, "#%s, %d\n", __func__, __LINE__);
+
+	if (opts->faults & INJECT_SIG_BIND)
+		kill(getpid(), SIGTERM);
+
+	save_info = *info;
+fprintf(stderr, "#%s, %d, compact_run_num:%d\n", __func__, __LINE__, copts->compact_run_num);
+	for (i = 0; i < copts->compact_run_num; i++) {
+		*info = save_info;
+
+		ret = hizip_test_sched(&sched, copts, info);
+fprintf(stderr, "#%s, %d, ret:%d\n", __func__, __LINE__, ret);
+		if (ret < 0) {
+			WD_ERR("hizip test fail with %d\n", ret);
+			break;
+		}
+	}
+
+	if (ret >= 0 && opts->faults & INJECT_TLB_FAULT) {
+		/*
+		 * Now unmap the buffers and retry the access. Normally we
+		 * should get an access fault, but if the TLB wasn't properly
+		 * invalidated, the access succeeds and corrupts memory!
+		 * This test requires small jobs, to make sure that we reuse
+		 * the same TLB entry between the tests. Run for example with
+		 * "-s 0x1000 -b 0x1000".
+		 */
+		ret = munmap(out_buf, copts->total_len * EXPANSION_RATIO);
+		if (ret)
+			perror("unmap()");
+
+		/* A warning if the parameters might produce false positives */
+		if (copts->total_len > 0x54000)
+			fprintf(stderr, "NOTE: test might trash the TLB\n");
+
+		*info = save_info;
+		info->faulting = true;
+		ret = hizip_test_sched(&sched, copts, info);
+		if (ret >= 0) {
+			WD_ERR("TLB test failed, broken invalidate! "
+			       "VA=%p-%p\n", out_buf, out_buf +
+			       copts->total_len * EXPANSION_RATIO - 1);
+			ret = -EFAULT;
+		} else {
+			printf("TLB test success\n");
+			ret = 0;
+		}
+		out_buf = NULL;
+	}
+
+fprintf(stderr, "#%s, %d, opts->faults:0x%x\n", __func__, __LINE__, opts->faults);
+	if (out_buf)
+		ret = hizip_verify_random_output(out_buf, copts, info);
+
+	uninit_config(info);
+
+out_ctx:
+	if (out_buf)
+		munmap(out_buf, copts->total_len * EXPANSION_RATIO);
+out_outbuf:
+	munmap(in_buf, copts->total_len);
+out_inbuf:
+	return ret;
+}
+#else
 /* fix me: just move it here to pass compile. rely on hardware directly is very bad!! */
 struct hisi_zip_sqe {
 	__u32 consumed;
@@ -203,6 +314,7 @@ out_with_msgs:
 	free(ctx->msgs);
 	return ret;
 }
+#endif
 
 static int run_one_test(struct priv_options *opts)
 {
@@ -212,6 +324,7 @@ static int run_one_test(struct priv_options *opts)
 	int nr_children = 0;
 	bool success = true;
 
+fprintf(stderr, "#%s, %d, children:%d\n", __func__, __LINE__, opts->children);
 	if (!opts->children)
 		return run_one_child(opts);
 
@@ -235,6 +348,7 @@ static int run_one_test(struct priv_options *opts)
 		exit(run_one_child(opts));
 	}
 
+fprintf(stderr, "#%s, %d, nr_children:%d\n", __func__, __LINE__, nr_children);
 	dbg("%d children spawned\n", nr_children);
 	for (i = 0; i < nr_children; i++) {
 		int status;
@@ -273,8 +387,10 @@ static int run_test(struct priv_options *opts)
 {
 	int i, ret;
 
+fprintf(stderr, "#%s, %d, run_num:%d\n", __func__, __LINE__, opts->common.run_num);
 	for (i = 0; i < opts->common.run_num; i++) {
 		ret = run_one_test(opts);
+fprintf(stderr, "#%s, %d, ret:%d\n", __func__, __LINE__, ret);
 		if (ret < 0)
 			return ret;
 	}

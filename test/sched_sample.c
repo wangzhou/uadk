@@ -173,6 +173,7 @@ struct sched_operator g_sched_ops[SCHED_POLICY_BUTT] = {
  */
 static struct sched_ctx_region *sample_sched_get_ctx_range(const struct sched_key *key)
 {
+fprintf(stderr, "#%s, %d, g_sched_info[%d].ctx_region[%d][%d].valid:%d\n", __func__, __LINE__, key->numa_id, key->mode, key->type, g_sched_info[key->numa_id].ctx_region[key->mode][key->type].valid);
 	if (g_sched_info[key->numa_id].ctx_region[key->mode][key->type].valid)
 		return &g_sched_info[key->numa_id].ctx_region[key->mode][key->type];
 
@@ -181,6 +182,7 @@ static struct sched_ctx_region *sample_sched_get_ctx_range(const struct sched_ke
 
 static bool sample_sched_key_valid(const struct sched_key *key)
 {
+fprintf(stderr, "#%s, %d, numa_id:%d:%d, mode:%d:%d, type:%d:%d\n", __func__, __LINE__, key->numa_id, MAX_NUMA_NUM, key->mode, SCHED_MODE_BUTT, key->type, g_sched_type_num);
 	if (key->numa_id >= MAX_NUMA_NUM || key->mode >= SCHED_MODE_BUTT || key->type >= g_sched_type_num) {
 		printf("ERROR: %s key error - %u,%u,%u !\n", __FUNCTION__, key->numa_id, key->mode, key->type);
 		return false;
@@ -197,23 +199,29 @@ handle_t sample_sched_pick_next_ctx(const struct wd_ctx_config *cfg, const void 
 	__u32 pos;
 	struct sched_ctx_region *region = NULL;
 
+fprintf(stderr, "#%s, %d, cfg:0x%x\n", __func__, __LINE__, cfg);
 	if (!cfg || !key || !req) {
+fprintf(stderr, "#%s, %d, cfg:0x%x, key:0x%x, req:%s\n", __func__, __LINE__, cfg, key, (char *)req);
 		printf("ERROR: %s the cfg or key or req is NULL !\n", __FUNCTION__);
 		return (handle_t)NULL;
 	}
 
+fprintf(stderr, "#%s, %d\n", __func__, __LINE__);
 	if (!sample_sched_key_valid(key)) {
 		printf("ERROR: %s the key is invalid !\n", __FUNCTION__);
 		return (handle_t)NULL;
 	}
 
+fprintf(stderr, "#%s, %d\n", __func__, __LINE__);
 	region = sample_sched_get_ctx_range(key);
 	if (!region)
 		return (handle_t)NULL;
 
+fprintf(stderr, "#%s, %d\n", __func__, __LINE__);
 	/* Notice: The second para now is a stub, we must alloc memery for it before using */
 	g_sched_ops[g_sched_policy].get_para(req, NULL);
 	pos = g_sched_ops[g_sched_policy].get_next_pos(region, NULL);
+fprintf(stderr, "#%s, %d, pos:%d, ctx:0x%x\n", __func__, __LINE__, pos, cfg->ctxs[pos].ctx);
 
 	return cfg->ctxs[pos].ctx;
 }
