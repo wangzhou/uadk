@@ -26,6 +26,8 @@ struct wd_ctx_config_internal {
 	__u32 ctx_num;
 	struct wd_ctx_internal *ctxs;
 	void *priv;
+	/* statistic */
+	struct wd_stat *stat;
 };
 
 /* fixme wd_comp_msg */

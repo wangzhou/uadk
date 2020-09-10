@@ -130,5 +130,29 @@ extern int wd_comp_poll(__u32 expt, __u32 *count);
  */
 extern int wd_do_comp_sync2(handle_t h_sess, struct wd_comp_req *req);
 
+/**
+ * wd_comp_stat_inc() - Increase the statistic count of sending data.
+ * @config: User defined context configuration.
+ * @h_ctx: The handle of context.
+ * @type: Account all sending and receiving informations.
+ */
+extern void wd_comp_stat_inc(void *config,
+			     handle_t h_ctx,
+			     enum wd_stat_type type);
 
+/**
+ * wd_comp_stat_get_count() - Get the statstic count of specified type.
+ * @config: User defined context configuration.
+ * @h_ctx: The handle of context.
+ * @type: Account all sending and receiving informations.
+ */
+extern int wd_comp_stat_get_count(void *config,
+				  handle_t h_ctx,
+				  enum wd_stat_type type);
+
+/**
+ * wd_comp_stat_clear() - Clear all statistic information.
+ * @config: User defined context configuration.
+ */
+extern void wd_comp_stat_clear(void *config);
 #endif /* __WD_COMP_H */

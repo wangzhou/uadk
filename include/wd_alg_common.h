@@ -53,6 +53,19 @@ struct wd_ctx {
 	__u8 ctx_mode;
 };
 
+enum wd_stat_type {
+	WD_STAT_SEND = 0,
+	WD_STAT_SEND_RETRIES,
+	WD_STAT_RECV,
+	WD_STAT_RECV_RETRIES,
+	WD_STAT_MAXIMUM,
+};
+
+struct wd_stat {
+	handle_t ctx;
+	int count[WD_STAT_MAXIMUM];
+};
+
 /**
  * struct wd_ctx_config - Define a ctx set and its related attributes, which
  *			  will be used in the scope of current process.
@@ -65,6 +78,8 @@ struct wd_ctx_config {
 	__u32 ctx_num;
 	struct wd_ctx *ctxs;
 	void *priv;
+	/* statistic */
+	struct wd_stat *stat;
 };
 
 /**

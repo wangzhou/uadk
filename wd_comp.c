@@ -305,11 +305,12 @@ static void wd_put_msg_to_pool(struct wd_async_msg_pool *pool,
 
 int wd_comp_init(struct wd_ctx_config *config, struct wd_sched *sched)
 {
-	void *priv;
+	void *priv, *stat;
+	int ctx_num = wd_comp_setting.config.ctx_num;
 	int ret;
 
 	/* wd_comp_init() could only be invoked once for one process. */
-	if (wd_comp_setting.config.ctx_num) {
+	if (ctx_num) {
 		WD_ERR("invalid, comp init() should only be invokoed once!\n");
 		return 0;
 	}
@@ -354,6 +355,14 @@ int wd_comp_init(struct wd_ctx_config *config, struct wd_sched *sched)
 		WD_ERR("failed to init req pool, ret = %d!\n", ret);
 		goto out_sched;
 	}
+	stat = calloc(1, ctx_num * sizeof(struct wd_stat));
+	if (!stat) {
+		WD_ERR("failed to allocate memory for statistic");
+		ret = -ENOMEM;
+		goto out_stat;
+	}
+	wd_comp_setting.config.stat = stat;
+	config->stat = stat;
 	/* init ctx related resources in specific driver */
 	priv = calloc(1, wd_comp_setting.driver->drv_ctx_size);
 	if (!priv) {
@@ -371,6 +380,8 @@ int wd_comp_init(struct wd_ctx_config *config, struct wd_sched *sched)
 out_init:
 	free(priv);
 out_priv:
+	free(wd_comp_setting.config.stat);
+out_stat:
 	wd_uninit_async_request_pool(&wd_comp_setting.pool);
 out_sched:
 	clear_sched_in_global_setting();
@@ -391,6 +402,8 @@ void wd_comp_uninit(void)
 	wd_comp_setting.driver->exit(priv);
 	free(priv);
 	priv = NULL;
+	free(wd_comp_setting.config.stat);
+	wd_comp_setting.config.stat = NULL;
 
 	/* uninit async request pool */
 	wd_uninit_async_request_pool(&wd_comp_setting.pool);
@@ -561,6 +574,7 @@ int wd_do_comp_sync(handle_t h_sess, struct wd_comp_req *req)
 
 	pthread_mutex_lock(&ctx->lock);
 
+	wd_comp_stat_inc(config, ctx->ctx, WD_STAT_SEND);
 	ret = wd_comp_setting.driver->comp_send(ctx->ctx, &msg);
 	if (ret < 0) {
 		pthread_mutex_unlock(&ctx->lock);
@@ -569,6 +583,7 @@ int wd_do_comp_sync(handle_t h_sess, struct wd_comp_req *req)
 	}
 	resp_msg.ctx_buf = sess->ctx_buf;
 	do {
+		wd_comp_stat_inc(config, ctx->ctx, WD_STAT_RECV);
 		ret = wd_comp_setting.driver->comp_recv(ctx->ctx, &resp_msg);
 		if (ret == -WD_HW_EACCESS) {
 			pthread_mutex_unlock(&ctx->lock);
@@ -576,6 +591,9 @@ int wd_do_comp_sync(handle_t h_sess, struct wd_comp_req *req)
 			return ret;
 		} else if (ret == -EAGAIN) {
 			if (++recv_count > MAX_RETRY_COUNTS) {
+				wd_comp_stat_inc(config,
+						 ctx->ctx,
+						 WD_STAT_RECV_RETRIES);
 				pthread_mutex_unlock(&ctx->lock);
 				WD_ERR("wd comp recv timeout fail!\n");
 				return -ETIMEDOUT;
@@ -739,6 +757,7 @@ int wd_do_comp_strm(handle_t h_sess, struct wd_comp_req *req)
 
 	pthread_mutex_lock(&ctx->lock);
 
+	wd_comp_stat_inc(config, ctx->ctx, WD_STAT_SEND);
 	ret = wd_comp_setting.driver->comp_send(ctx->ctx, &msg);
 	if (ret < 0) {
 		pthread_mutex_unlock(&ctx->lock);
@@ -747,6 +766,7 @@ int wd_do_comp_strm(handle_t h_sess, struct wd_comp_req *req)
 	}
 	resp_msg.ctx_buf = sess->ctx_buf;
 	do {
+		wd_comp_stat_inc(config, ctx->ctx, WD_STAT_RECV);
 		ret = wd_comp_setting.driver->comp_recv(ctx->ctx, &resp_msg);
 		if (ret == -WD_HW_EACCESS) {
 			pthread_mutex_unlock(&ctx->lock);
@@ -754,6 +774,9 @@ int wd_do_comp_strm(handle_t h_sess, struct wd_comp_req *req)
 			return ret;
 		} else if (ret == -EAGAIN) {
 			if (++recv_count > MAX_RETRY_COUNTS) {
+				wd_comp_stat_inc(config,
+						 ctx->ctx,
+						 WD_STAT_RECV_RETRIES);
 				pthread_mutex_unlock(&ctx->lock);
 				WD_ERR("wd comp recv timeout fail!\n");
 				return -ETIMEDOUT;
@@ -816,6 +839,7 @@ int wd_do_comp_async(handle_t h_sess, struct wd_comp_req *req)
 
 	pthread_mutex_lock(&ctx->lock);
 
+	wd_comp_stat_inc(config, ctx->ctx, WD_STAT_SEND);
 	ret = wd_comp_setting.driver->comp_send(ctx->ctx, msg);
 	if (ret < 0) {
 		WD_ERR("wd comp send err(%d)!\n", ret);
@@ -829,9 +853,65 @@ int wd_do_comp_async(handle_t h_sess, struct wd_comp_req *req)
 
 int wd_comp_poll(__u32 expt, __u32 *count)
 {
-	int ret;
-
 	*count = 0;
 
+	//wd_comp_stat_inc(&wd_comp_setting.config, h_ctx, WD_STAT_RECV);
 	return wd_comp_setting.sched.poll_policy(0, 0, expt, count);
+}
+
+void wd_comp_stat_inc(void *config,
+		      handle_t h_ctx,
+		      enum wd_stat_type type)
+{
+	struct wd_ctx_config_internal *cfg;
+	int i;
+
+	if (config)
+		cfg = (struct wd_ctx_config_internal *)config;
+	else
+		cfg = &wd_comp_setting.config;
+	if (type >= WD_STAT_MAXIMUM)
+		return;
+	for (i = 0; i < cfg->ctx_num; i++) {
+		if (h_ctx == cfg->ctxs[i].ctx) {
+			cfg->stat[i].ctx = h_ctx;
+			cfg->stat[i].count[type]++;
+			return;
+		}
+	}
+}
+
+int wd_comp_stat_get_count(void *config,
+			   handle_t h_ctx,
+			   enum wd_stat_type type)
+{
+	struct wd_ctx_config_internal *cfg;
+	int i;
+
+	if (config)
+		cfg = (struct wd_ctx_config_internal *)config;
+	else
+		cfg = &wd_comp_setting.config;
+	if (type >= WD_STAT_MAXIMUM)
+		return -EINVAL;
+	for (i = 0; i < cfg->ctx_num; i++) {
+		if (h_ctx == cfg->ctxs[i].ctx)
+			return cfg->stat[i].count[type];
+	}
+	return -EINVAL;
+}
+
+void wd_comp_stat_clear(void *config)
+{
+	struct wd_ctx_config_internal *cfg;
+	int i, type;
+
+	if (config)
+		cfg = (struct wd_ctx_config_internal *)config;
+	else
+		cfg = &wd_comp_setting.config;
+	for (i = 0; i < cfg->ctx_num; i++) {
+		for (type = 0; type < WD_STAT_MAXIMUM; type++)
+			cfg->stat[i].count[type] = 0;
+	}
 }
