@@ -275,10 +275,12 @@ static int run_one_test(struct priv_options *opts, struct hizip_stats *stats)
 	struct timespec setup_time, start_time, end_time;
 	struct timespec setup_cputime, start_cputime, end_cputime;
 	struct rusage setup_rusage, start_rusage, end_rusage;
-	struct wd_sched *sched;
-	int stat_size = sizeof(info.stat) * copts->q_num;
-	//int stat_size = sizeof(*sched.stat) * copts->q_num;
+	struct wd_sched *sched = NULL;
+	int stat_size;
+	struct wd_ctx_config *config = &info.ctx_conf;
+	struct wd_stat *stat;
 
+	stat_size = sizeof(struct wd_stat) * copts->q_num;
 	stats->v[ST_SEND] = stats->v[ST_RECV] = stats->v[ST_SEND_RETRY] =
 			    stats->v[ST_RECV_RETRY] = 0;
 
@@ -347,12 +349,12 @@ static int run_one_test(struct priv_options *opts, struct hizip_stats *stats)
 			goto out_with_fini;
 		}
 
-		for (i = 0; i < copts->q_num && info.stat; i++) {
-			stats->v[ST_SEND] += info.stat[i].send;
-			stats->v[ST_RECV] += info.stat[i].recv;
-			stats->v[ST_SEND_RETRY] += info.stat[i].send_retries;
-			stats->v[ST_RECV_RETRY] += info.stat[i].recv_retries;
-			memset(info.stat, 0, stat_size);
+		for (i = 0; i < copts->q_num; i++) {
+			stat = &config->stat[i];
+			stats->v[ST_SEND] += stat->count[WD_STAT_SEND];
+			stats->v[ST_RECV] += stat->count[WD_STAT_RECV];
+			stats->v[ST_SEND_RETRY] += stat->count[WD_STAT_SEND_RETRIES];
+			stats->v[ST_RECV_RETRY] += stat->count[WD_STAT_RECV_RETRIES];
 		}
 	}
 

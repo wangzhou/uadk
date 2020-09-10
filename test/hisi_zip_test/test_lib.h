@@ -61,13 +61,6 @@ struct hizip_test_info {
 	handle_t h_sess;
 	struct wd_ctx_config ctx_conf;
 	struct wd_comp_req req;
-	/* statistic */
-	struct {
-		int send;
-		int send_retries;
-		int recv;
-		int recv_retries;
-	} *stat;
 	/* Test is expected to fail */
 	bool faulting;
 };
