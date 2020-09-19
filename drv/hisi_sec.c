@@ -126,7 +126,7 @@ enum sec_cipher_dir {
 };
 
 struct hisi_sec_ctx {
-	struct wd_ctx_config config;
+	struct wd_ctx_config_internal config;
 };
 
 struct hisi_sec_sqe_type2 {
@@ -290,7 +290,7 @@ static void update_iv(struct wd_cipher_msg *msg)
 
 }
 
-int hisi_sec_init(struct wd_ctx_config *config, void *priv)
+int hisi_sec_init(struct wd_ctx_config_internal *config, void *priv)
 {
 	struct hisi_sec_ctx *sec_ctx = priv;
 	struct hisi_qm_priv qm_priv;
@@ -306,7 +306,7 @@ int hisi_sec_init(struct wd_ctx_config *config, void *priv)
 		if (!h_qp)
 			goto out;
 	}
-	memcpy(&sec_ctx->config, config, sizeof(struct wd_ctx_config));
+	memcpy(&sec_ctx->config, config, sizeof(struct wd_ctx_config_internal));
 	return 0;
 out:
 	for (; i >= 0 ; i--) {
@@ -324,7 +324,7 @@ void hisi_sec_exit(void *priv)
 	}
 
 	struct hisi_sec_ctx *sec_ctx = priv;
-	struct wd_ctx_config *config = &sec_ctx->config;
+	struct wd_ctx_config_internal *config = &sec_ctx->config;
 	handle_t h_qp;
 	int i;
 
