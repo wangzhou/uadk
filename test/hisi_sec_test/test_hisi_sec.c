@@ -107,169 +107,169 @@ int get_cipher_resource(struct cipher_testvec **alg_tv, int* alg, int* mode)
 	int mode_type;
 
 	switch (g_testalg) {
-		case 0:
-			alg_type = WD_CIPHER_AES;
-			mode_type = WD_CIPHER_ECB;
-			SEC_TST_PRT("test alg: %s\n", "ecb(aes)");
-			switch (g_keylen) {
-				case AES_KEYSIZE_128:
-					tv = &aes_ecb_tv_template_128[0];
-					break;
-				case AES_KEYSIZE_192:
-					tv = &aes_ecb_tv_template_192[0];
-					break;
-				case AES_KEYSIZE_256:
-					tv = &aes_ecb_tv_template_256[0];
-					break;
-				default:
-					SEC_TST_PRT("%s: input key err!\n", __func__);
-					return -EINVAL;
-			}
+	case 0:
+		alg_type = WD_CIPHER_AES;
+		mode_type = WD_CIPHER_ECB;
+		SEC_TST_PRT("test alg: %s\n", "ecb(aes)");
+		switch (g_keylen) {
+		case AES_KEYSIZE_128:
+			tv = &aes_ecb_tv_template_128[0];
 			break;
-		case 1:
-			alg_type = WD_CIPHER_AES;
-			mode_type = WD_CIPHER_CBC;
-			SEC_TST_PRT("test alg: %s\n", "cbc(aes)");
-			switch (g_keylen) {
-				case AES_KEYSIZE_128:
-					tv = &aes_cbc_tv_template_128[0];
-					break;
-				case AES_KEYSIZE_192:
-					tv = &aes_cbc_tv_template_192[0];
-					break;
-				case AES_KEYSIZE_256:
-					tv = &aes_cbc_tv_template_256[0];
-					break;
-				default:
-					SEC_TST_PRT("%s: input key err!\n", __func__);
-					return -EINVAL;
-			}
+		case AES_KEYSIZE_192:
+			tv = &aes_ecb_tv_template_192[0];
 			break;
-		case 2:
-			alg_type = WD_CIPHER_AES;
-			mode_type = WD_CIPHER_XTS;
-			SEC_TST_PRT("test alg: %s\n", "xts(aes)");
-			switch (g_keylen / 2) {
-				case AES_KEYSIZE_128:
-					tv = &aes_xts_tv_template_256[0];
-					break;
-				case AES_KEYSIZE_256:
-					tv = &aes_xts_tv_template_512[0];
-					break;
-				default:
-					SEC_TST_PRT("%s: input key err!\n", __func__);
-					return -EINVAL;
-			}
+		case AES_KEYSIZE_256:
+			tv = &aes_ecb_tv_template_256[0];
 			break;
-		case 3:
-			alg_type = WD_CIPHER_AES;
-			mode_type = WD_CIPHER_OFB;
-			SEC_TST_PRT("test alg: %s\n", "ofb(aes)");
-			switch (g_keylen) {
-				case AES_KEYSIZE_128:
-					tv = &aes_ofb_tv_template_128[0];
-					break;
-				case AES_KEYSIZE_192:
-					tv = &aes_ofb_tv_template_192[0];
-					break;
-				case AES_KEYSIZE_256:
-					tv = &aes_ofb_tv_template_256[0];
-					break;
-				default:
-					SEC_TST_PRT("%s: input key err!\n", __func__);
-					return -EINVAL;
-			}
-			break;
-		case 4:
-			alg_type = WD_CIPHER_AES;
-			mode_type = WD_CIPHER_CFB;
-			SEC_TST_PRT("test alg: %s\n", "cfb(aes)");
-			switch (g_keylen) {
-				case AES_KEYSIZE_128:
-					tv = &aes_cfb_tv_template_128[0];
-					break;
-				case AES_KEYSIZE_192:
-					tv = &aes_cfb_tv_template_192[0];
-					break;
-				case AES_KEYSIZE_256:
-					tv = &aes_cfb_tv_template_256[0];
-					break;
-				default:
-					SEC_TST_PRT("%s: input key err!\n", __func__);
-					return -EINVAL;
-			}
-			break;
-
-		case 5:
-			alg_type = WD_CIPHER_3DES;
-			mode_type = WD_CIPHER_ECB;
-			SEC_TST_PRT("test alg: %s\n", "ecb(des3)");
-			if (g_keylen == 16)
-				tv = &des3_ecb_tv_template_128[0];
-			else if (g_keylen == 24)
-				tv = &des3_ecb_tv_template_192[0];
-			else {
-				SEC_TST_PRT("%s: input key err!\n", __func__);
-				return -EINVAL;
-			}
-			break;
-		case 6:
-			alg_type = WD_CIPHER_3DES;
-			mode_type = WD_CIPHER_CBC;
-			SEC_TST_PRT("test alg: %s\n", "cbc(des3)");
-			if (g_keylen == 16)
-				tv = &des3_cbc_tv_template_128[0];
-			else if (g_keylen == 24)
-				tv = &des3_cbc_tv_template_192[0];
-			else {
-				SEC_TST_PRT("%s: input key err!\n", __func__);
-				return -EINVAL;
-			}
-			break;
-		case 7:
-			alg_type = WD_CIPHER_SM4;
-			mode_type = WD_CIPHER_CBC;
-			SEC_TST_PRT("test alg: %s\n", "cbc(sm4)");
-			if (g_keylen != 16) {
-				SEC_TST_PRT("%s: input key err!\n", __func__);
-				return -EINVAL;
-			}
-			tv = &sm4_cbc_tv_template[0];
-			break;
-		case 8:
-			alg_type = WD_CIPHER_SM4;
-			mode_type = WD_CIPHER_XTS;
-			SEC_TST_PRT("test alg: %s\n", "xts(sm4)");
-			if (g_keylen != 32) {
-				SEC_TST_PRT("%s: input key err!\n", __func__);
-				return -EINVAL;
-			}
-			tv = &sm4_xts_tv_template[0];
-			break;
-		case 9:
-			alg_type = WD_CIPHER_SM4;
-			mode_type = WD_CIPHER_OFB;
-			SEC_TST_PRT("test alg: %s\n", "ofb(sm4)");
-			if (g_keylen != 16) {
-				SEC_TST_PRT("%s: input key err!\n", __func__);
-				return -EINVAL;
-			}
-			tv = &sm4_ofb_tv_template_128[0];
-			break;
-		case 10:
-			alg_type = WD_CIPHER_SM4;
-			mode_type = WD_CIPHER_CFB;
-			SEC_TST_PRT("test alg: %s\n", "cfb(sm4)");
-			if (g_keylen != 16) {
-				SEC_TST_PRT("%s: input key err!\n", __func__);
-				return -EINVAL;
-			}
-			tv = &sm4_cfb_tv_template_128[0];
-			break;
-
 		default:
-			SEC_TST_PRT("keylenth error, default test alg: %s\n", "ecb(aes)");
+			SEC_TST_PRT("%s: input key err!\n", __func__);
 			return -EINVAL;
+		}
+		break;
+	case 1:
+		alg_type = WD_CIPHER_AES;
+		mode_type = WD_CIPHER_CBC;
+		SEC_TST_PRT("test alg: %s\n", "cbc(aes)");
+		switch (g_keylen) {
+		case AES_KEYSIZE_128:
+			tv = &aes_cbc_tv_template_128[0];
+			break;
+		case AES_KEYSIZE_192:
+			tv = &aes_cbc_tv_template_192[0];
+			break;
+		case AES_KEYSIZE_256:
+			tv = &aes_cbc_tv_template_256[0];
+			break;
+		default:
+			SEC_TST_PRT("%s: input key err!\n", __func__);
+			return -EINVAL;
+		}
+		break;
+	case 2:
+		alg_type = WD_CIPHER_AES;
+		mode_type = WD_CIPHER_XTS;
+		SEC_TST_PRT("test alg: %s\n", "xts(aes)");
+		switch (g_keylen / 2) {
+		case AES_KEYSIZE_128:
+			tv = &aes_xts_tv_template_256[0];
+			break;
+		case AES_KEYSIZE_256:
+			tv = &aes_xts_tv_template_512[0];
+			break;
+		default:
+			SEC_TST_PRT("%s: input key err!\n", __func__);
+				return -EINVAL;
+		}
+		break;
+	case 3:
+		alg_type = WD_CIPHER_AES;
+		mode_type = WD_CIPHER_OFB;
+		SEC_TST_PRT("test alg: %s\n", "ofb(aes)");
+		switch (g_keylen) {
+		case AES_KEYSIZE_128:
+			tv = &aes_ofb_tv_template_128[0];
+			break;
+		case AES_KEYSIZE_192:
+			tv = &aes_ofb_tv_template_192[0];
+			break;
+		case AES_KEYSIZE_256:
+			tv = &aes_ofb_tv_template_256[0];
+			break;
+		default:
+			SEC_TST_PRT("%s: input key err!\n", __func__);
+			return -EINVAL;
+		}
+		break;
+	case 4:
+		alg_type = WD_CIPHER_AES;
+		mode_type = WD_CIPHER_CFB;
+		SEC_TST_PRT("test alg: %s\n", "cfb(aes)");
+		switch (g_keylen) {
+		case AES_KEYSIZE_128:
+			tv = &aes_cfb_tv_template_128[0];
+			break;
+		case AES_KEYSIZE_192:
+			tv = &aes_cfb_tv_template_192[0];
+			break;
+		case AES_KEYSIZE_256:
+			tv = &aes_cfb_tv_template_256[0];
+			break;
+		default:
+			SEC_TST_PRT("%s: input key err!\n", __func__);
+			return -EINVAL;
+		}
+		break;
+
+	case 5:
+		alg_type = WD_CIPHER_3DES;
+		mode_type = WD_CIPHER_ECB;
+		SEC_TST_PRT("test alg: %s\n", "ecb(des3)");
+		if (g_keylen == 16)
+			tv = &des3_ecb_tv_template_128[0];
+		else if (g_keylen == 24)
+			tv = &des3_ecb_tv_template_192[0];
+		else {
+			SEC_TST_PRT("%s: input key err!\n", __func__);
+			return -EINVAL;
+		}
+		break;
+	case 6:
+		alg_type = WD_CIPHER_3DES;
+		mode_type = WD_CIPHER_CBC;
+		SEC_TST_PRT("test alg: %s\n", "cbc(des3)");
+		if (g_keylen == 16)
+			tv = &des3_cbc_tv_template_128[0];
+		else if (g_keylen == 24)
+			tv = &des3_cbc_tv_template_192[0];
+		else {
+			SEC_TST_PRT("%s: input key err!\n", __func__);
+			return -EINVAL;
+		}
+		break;
+	case 7:
+		alg_type = WD_CIPHER_SM4;
+		mode_type = WD_CIPHER_CBC;
+		SEC_TST_PRT("test alg: %s\n", "cbc(sm4)");
+		if (g_keylen != 16) {
+			SEC_TST_PRT("%s: input key err!\n", __func__);
+			return -EINVAL;
+		}
+		tv = &sm4_cbc_tv_template[0];
+		break;
+	case 8:
+		alg_type = WD_CIPHER_SM4;
+		mode_type = WD_CIPHER_XTS;
+		SEC_TST_PRT("test alg: %s\n", "xts(sm4)");
+		if (g_keylen != 32) {
+			SEC_TST_PRT("%s: input key err!\n", __func__);
+			return -EINVAL;
+		}
+		tv = &sm4_xts_tv_template[0];
+		break;
+	case 9:
+		alg_type = WD_CIPHER_SM4;
+		mode_type = WD_CIPHER_OFB;
+		SEC_TST_PRT("test alg: %s\n", "ofb(sm4)");
+		if (g_keylen != 16) {
+			SEC_TST_PRT("%s: input key err!\n", __func__);
+			return -EINVAL;
+		}
+		tv = &sm4_ofb_tv_template_128[0];
+		break;
+	case 10:
+		alg_type = WD_CIPHER_SM4;
+		mode_type = WD_CIPHER_CFB;
+		SEC_TST_PRT("test alg: %s\n", "cfb(sm4)");
+		if (g_keylen != 16) {
+			SEC_TST_PRT("%s: input key err!\n", __func__);
+			return -EINVAL;
+		}
+		tv = &sm4_cfb_tv_template_128[0];
+		break;
+
+	default:
+		SEC_TST_PRT("keylenth error, default test alg: %s\n", "ecb(aes)");
+		return -EINVAL;
 	}
 	*alg = alg_type;
 	*mode = mode_type;
@@ -330,9 +330,9 @@ static int init_sigle_ctx_config(int type, int mode, struct wd_sched *sched)
 	wd_free_list_accels(list);
 
 	return 0;
+
 out:
 	free(g_ctx_cfg.ctxs);
-
 	return ret;
 }
 
@@ -450,15 +450,11 @@ out:
 	if (h_sess)
 		wd_cipher_free_sess(h_sess);
 	uninit_config();
-
 	return ret;
 }
 
 static void *async_cb(struct wd_cipher_req *req, void *data)
 {
-	// struct wd_cipher_req *req = (struct wd_cipher_req *)data;
-	// memcpy(&g_async_req, req, sizeof(struct wd_cipher_req));
-
 	return NULL;
 }
 
@@ -540,7 +536,6 @@ static int test_sec_cipher_async_once(void)
 		goto out;
 	}
 	printf("cipher req key--------->:\n");
-	// hexdump(h_sess->key, tv->klen);
 	while (cnt) {
 		req.cb = async_cb;
 		req.cb_param = &data;
@@ -549,7 +544,6 @@ static int test_sec_cipher_async_once(void)
 			usleep(100);
 			continue;
 		}
-		/* poll thread */
 try_again:
 		num = 0;
 		ret = wd_cipher_poll_ctx(0, 1, &num);
@@ -559,10 +553,8 @@ try_again:
 		cnt--;
 	}
 
-	// printf("Test cipher async once function: output dst-->\n");
-	// hexdump(req.dst, req.out_bytes);
-
 	usleep(100000);
+
 out:
 	if (req.src)
 		free(req.src);
@@ -573,7 +565,6 @@ out:
 	if (h_sess)
 		wd_cipher_free_sess(h_sess);
 	uninit_config();
-
 	return ret;
 }
 
@@ -617,10 +608,8 @@ static int test_sec_cipher_sync(void *arg)
 	}
 
 	printf("cipher req key--------->:\n");
-	// hexdump(h_sess->key, h_sess->key_bytes);
 
 	pthread_mutex_lock(&test_sec_mutex);
-	// pthread_cond_wait(&cond, &test_sec_mutex);
 	/* run task */
 	while (cnt) {
 		ret = wd_do_cipher_sync(h_sess, req);
@@ -637,18 +626,13 @@ static int test_sec_cipher_sync(void *arg)
 	printf("Pro-%d, thread_id-%d, speed:%0.3f ops, Perf: %ld KB/s\n", pid,
 			thread_id, speed, Perf);
 
-#if 0
-	printf("Test cipher sync function: output dst-->\n");
-	hexdump(req->dst, req->in_bytes);
-	printf("Test cipher sync function thread_id is:%d\n", thread_id);
-#endif
 	pthread_mutex_unlock(&test_sec_mutex);
 
 	ret = 0;
+
 out:
 	if (h_sess)
 		wd_cipher_free_sess(h_sess);
-
 	return ret;
 }
 
@@ -658,11 +642,13 @@ static void *_test_sec_cipher_sync(void *data)
 
 	return NULL;
 }
+
 /*
  * Create 2 threads. one threads are enc/dec, and the other
  * is polling.
  */
-static int test_sync_create_threads(int thread_num, struct wd_cipher_req *reqs, struct wd_cipher_sess_setup *setups)
+static int test_sync_create_threads(int thread_num, struct wd_cipher_req *reqs,
+				    struct wd_cipher_sess_setup *setups)
 {
 	pthread_attr_t attr;
 	int i, ret;
@@ -679,7 +665,8 @@ static int test_sync_create_threads(int thread_num, struct wd_cipher_req *reqs, 
 		thr_data[i].req = &reqs[i];
 		thr_data[i].setup = &setups[i];
 		gettimeofday(&thr_data[i].start_tval, NULL);
-		ret = pthread_create(&system_test_thrds[i], &attr, _test_sec_cipher_sync, &thr_data[i]);
+		ret = pthread_create(&system_test_thrds[i], &attr,
+				     _test_sec_cipher_sync, &thr_data[i]);
 		if (ret) {
 			printf("Failed to create thread, ret:%d\n", ret);
 			return ret;
@@ -697,7 +684,7 @@ static int test_sync_create_threads(int thread_num, struct wd_cipher_req *reqs, 
 
 static int sec_cipher_sync_test(void)
 {
-	struct wd_cipher_req	req[NUM_THREADS];
+	struct wd_cipher_req req[NUM_THREADS];
 	struct wd_cipher_sess_setup setup[NUM_THREADS];
 	void *src = NULL, *dst = NULL, *iv = NULL;
 	int parallel = g_thread_num;
@@ -775,7 +762,6 @@ out_thr:
 		free(dst);
 	if (iv)
 		free(iv);
-
 	return ret;
 }
 
@@ -806,12 +792,11 @@ static int test_sec_cipher_async(void *arg)
 	}
 
 	pthread_mutex_lock(&test_sec_mutex);
-	// pthread_cond_wait(&cond, &test_sec_mutex);
 	/* run task */
 	do {
 try_do_again:
 		ret = wd_do_cipher_async(h_sess, req);
-		if (ret == -EBUSY) { // busy
+		if (ret == -EBUSY) {
 			usleep(100);
 			goto try_do_again;
 		} else if (ret) {
@@ -828,7 +813,6 @@ try_do_again:
 out:
 	if (h_sess)
 		wd_cipher_free_sess(h_sess);
-
 	return ret;
 }
 
@@ -870,7 +854,8 @@ static void *poll_func(void *arg)
  * Create 2 threads. one threads are enc/dec, and the other
  * is polling.
  */
-static int test_async_create_threads(int thread_num, struct wd_cipher_req *reqs, struct wd_cipher_sess_setup *setups)
+static int test_async_create_threads(int thread_num, struct wd_cipher_req *reqs,
+				     struct wd_cipher_sess_setup *setups)
 {
 	int thread_id = (int)syscall(__NR_gettid);
 	struct timeval cur_tval;
@@ -891,14 +876,16 @@ static int test_async_create_threads(int thread_num, struct wd_cipher_req *reqs,
 		thr_data[i].req = &reqs[i];
 		thr_data[i].setup = &setups[i];
 		gettimeofday(&thr_data[i].start_tval, NULL);
-		ret = pthread_create(&system_test_thrds[i], &attr, _test_sec_cipher_async, &thr_data[i]);
+		ret = pthread_create(&system_test_thrds[i], &attr,
+				     _test_sec_cipher_async, &thr_data[i]);
 		if (ret) {
 			printf("Failed to create thread, ret:%d\n", ret);
 			return ret;
 		}
 	}
 
-	ret = pthread_create(&system_test_thrds[i], &attr, poll_func, &thr_data[i]);
+	ret = pthread_create(&system_test_thrds[i], &attr, poll_func,
+			     &thr_data[i]);
 
 	pthread_attr_destroy(&attr);
 
@@ -918,13 +905,13 @@ static int test_async_create_threads(int thread_num, struct wd_cipher_req *reqs,
 
 	gettimeofday(&cur_tval, NULL);
 	time_used = (double)((cur_tval.tv_sec - thr_data[0].start_tval.tv_sec) * 1000000 +
-				cur_tval.tv_usec - thr_data[0].start_tval.tv_usec);
-	printf("time_used:%0.0f us, send task num:%llu\n", time_used, g_times * g_thread_num);
+			     cur_tval.tv_usec - thr_data[0].start_tval.tv_usec);
+	printf("time_used:%0.0f us, send task num:%llu\n", time_used,
+	       g_times * g_thread_num);
 	speed = g_times * g_thread_num / time_used * 1000000;
 	Perf = speed * g_pktlen / 1024; //B->KB
 	printf("Pro-%d, thread_id-%d, speed:%f ops, Perf: %ld KB/s\n",
 		getpid(), thread_id, speed, Perf);
-
 
 	return 0;
 }
@@ -1010,7 +997,6 @@ out_thr:
 		free(dst);
 	if (iv)
 		free(iv);
-
 	return ret;
 }
 
@@ -1076,154 +1062,155 @@ int get_digest_resource(struct hash_testvec **alg_tv, int* alg, int* mode)
 	int mode_type = 0;
 
 	switch (g_testalg) {
+	case 0:
+		switch (g_alg_op_type) {
 		case 0:
-			switch (g_alg_op_type) {
-				case 0:
-					mode_type = WD_DIGEST_NORMAL;
-					printf("test alg: %s\n", "normal(sm3)");
-					tv = &sm3_tv_template[0];
-					break;
-				case 1:
-					mode_type = WD_DIGEST_HMAC;
-					printf("test alg: %s\n", "hmac(sm3)");
-					tv = &hmac_sm3_tv_template[0];
-					break;
-			}
-			tv->dsize = 32;
-			alg_type = WD_DIGEST_SM3;
+			mode_type = WD_DIGEST_NORMAL;
+			printf("test alg: %s\n", "normal(sm3)");
+			tv = &sm3_tv_template[0];
 			break;
 		case 1:
-			switch (g_alg_op_type) {
-				case 0:
-					mode_type = WD_DIGEST_NORMAL;
-					printf("test alg: %s\n", "normal(md5)");
-					tv = &md5_tv_template[0];
-					break;
-				case 1:
-					mode_type = WD_DIGEST_HMAC;
-					printf("test alg: %s\n", "hmac(md5)");
-					tv = &hmac_md5_tv_template[0];
-					break;
-			}
-			tv->dsize = 16;
-			alg_type = WD_DIGEST_MD5;
+			mode_type = WD_DIGEST_HMAC;
+			printf("test alg: %s\n", "hmac(sm3)");
+			tv = &hmac_sm3_tv_template[0];
 			break;
-		case 2:
-			switch (g_alg_op_type) {
-				case 0:
-					mode_type = WD_DIGEST_NORMAL;
-					printf("test alg: %s\n", "normal(sha1)");
-					tv = &sha1_tv_template[0];
-					break;
-				case 1:
-					mode_type = WD_DIGEST_HMAC;
-					printf("test alg: %s\n", "hmac(sha1)");
-					tv = &hmac_sha1_tv_template[0];
-					break;
-			}
-			tv->dsize = 20;
-			alg_type = WD_DIGEST_SHA1;
+		}
+		tv->dsize = 32;
+		alg_type = WD_DIGEST_SM3;
+		break;
+	case 1:
+		switch (g_alg_op_type) {
+		case 0:
+			mode_type = WD_DIGEST_NORMAL;
+			printf("test alg: %s\n", "normal(md5)");
+			tv = &md5_tv_template[0];
 			break;
-		case 3:
-			switch (g_alg_op_type) {
-				case 0:
-					mode_type = WD_DIGEST_NORMAL;
-					printf("test alg: %s\n", "normal(sha256)");
-					tv = &sha256_tv_template[0];
-					break;
-				case 1:
-					mode_type = WD_DIGEST_HMAC;
-					printf("test alg: %s\n", "hmac(sha256)");
-					tv = &hmac_sha256_tv_template[0];
-					break;
-			}
-			tv->dsize = 32;
-			alg_type = WD_DIGEST_SHA256;
+		case 1:
+			mode_type = WD_DIGEST_HMAC;
+			printf("test alg: %s\n", "hmac(md5)");
+			tv = &hmac_md5_tv_template[0];
 			break;
-		case 4:
-			switch (g_alg_op_type) {
-				case 0:
-					mode_type = WD_DIGEST_NORMAL;
-					printf("test alg: %s\n", "normal(sha224)");
-					tv = &sha224_tv_template[0];
-					break;
-				case 1:
-					mode_type = WD_DIGEST_HMAC;
-					printf("test alg: %s\n", "hmac(sha224)");
-					tv = &hmac_sha224_tv_template[0];
-					break;
-			}
-			tv->dsize = 28;
-			alg_type = WD_DIGEST_SHA224;
+		}
+		tv->dsize = 16;
+		alg_type = WD_DIGEST_MD5;
+		break;
+	case 2:
+		switch (g_alg_op_type) {
+		case 0:
+			mode_type = WD_DIGEST_NORMAL;
+			printf("test alg: %s\n", "normal(sha1)");
+			tv = &sha1_tv_template[0];
 			break;
-		case 5:
-			switch (g_alg_op_type) {
-				case 0:
-					mode_type = WD_DIGEST_NORMAL;
-					printf("test alg: %s\n", "normal(sha384)");
-					tv = &sha384_tv_template[0];
-					break;
-				case 1:
-					mode_type = WD_DIGEST_HMAC;
-					printf("test alg: %s\n", "hmac(sha384)");
-					tv = &hmac_sha384_tv_template[0];
-					break;
-			}
-			tv->dsize = 48;
-			alg_type = WD_DIGEST_SHA384;
+		case 1:
+			mode_type = WD_DIGEST_HMAC;
+			printf("test alg: %s\n", "hmac(sha1)");
+			tv = &hmac_sha1_tv_template[0];
 			break;
-		case 6:
-			switch (g_alg_op_type) {
-				case 0:
-					mode_type = WD_DIGEST_NORMAL;
-					printf("test alg: %s\n", "normal(sha512)");
-					tv = &sha512_tv_template[0];
-					break;
-				case 1:
-					mode_type = WD_DIGEST_HMAC;
-					printf("test alg: %s\n", "hmac(sha512)");
-					tv = &hmac_sha512_tv_template[0];
-					break;
-			}
-			tv->dsize = 64;
-			alg_type = WD_DIGEST_SHA512;
+		}
+		tv->dsize = 20;
+		alg_type = WD_DIGEST_SHA1;
+		break;
+	case 3:
+		switch (g_alg_op_type) {
+		case 0:
+			mode_type = WD_DIGEST_NORMAL;
+			printf("test alg: %s\n", "normal(sha256)");
+			tv = &sha256_tv_template[0];
 			break;
-		case 7:
-			switch (g_alg_op_type) {
-				case 0:
-					mode_type = WD_DIGEST_NORMAL;
-					printf("test alg: %s\n", "normal(sha512_224)");
-					tv = &sha512_224_tv_template[0];
-					break;
-				case 1:
-					mode_type = WD_DIGEST_HMAC;
-					printf("test alg: %s\n", "hmac(sha512_224");
-					tv = &hmac_sha512_224_tv_template[0];
-					break;
-			}
-			tv->dsize = 28;
-			alg_type = WD_DIGEST_SHA512_224;
+		case 1:
+			mode_type = WD_DIGEST_HMAC;
+			printf("test alg: %s\n", "hmac(sha256)");
+			tv = &hmac_sha256_tv_template[0];
 			break;
-		case 8:
-			switch (g_alg_op_type) {
-				case 0:
-					mode_type = WD_DIGEST_NORMAL;
-					printf("test alg: %s\n", "normal(sha512_256)");
-					tv = &sha512_256_tv_template[0];
-					break;
-				case 1:
-					mode_type = WD_DIGEST_HMAC;
-					printf("test alg: %s\n", "hmac(sha512_256)");
-					tv = &hmac_sha512_256_tv_template[0];
-					break;
-			}
-			tv->dsize = 32;
-			alg_type = WD_DIGEST_SHA512_256;
+		}
+		tv->dsize = 32;
+		alg_type = WD_DIGEST_SHA256;
+		break;
+	case 4:
+		switch (g_alg_op_type) {
+		case 0:
+			mode_type = WD_DIGEST_NORMAL;
+			printf("test alg: %s\n", "normal(sha224)");
+			tv = &sha224_tv_template[0];
 			break;
-		default:
-			printf("keylenth error, default test alg: %s\n", "normal(sm3)");
-			return -EINVAL;
+		case 1:
+			mode_type = WD_DIGEST_HMAC;
+			printf("test alg: %s\n", "hmac(sha224)");
+			tv = &hmac_sha224_tv_template[0];
+			break;
+		}
+		tv->dsize = 28;
+		alg_type = WD_DIGEST_SHA224;
+		break;
+	case 5:
+		switch (g_alg_op_type) {
+		case 0:
+			mode_type = WD_DIGEST_NORMAL;
+			printf("test alg: %s\n", "normal(sha384)");
+			tv = &sha384_tv_template[0];
+			break;
+		case 1:
+			mode_type = WD_DIGEST_HMAC;
+			printf("test alg: %s\n", "hmac(sha384)");
+			tv = &hmac_sha384_tv_template[0];
+			break;
+		}
+		tv->dsize = 48;
+		alg_type = WD_DIGEST_SHA384;
+		break;
+	case 6:
+		switch (g_alg_op_type) {
+		case 0:
+			mode_type = WD_DIGEST_NORMAL;
+			printf("test alg: %s\n", "normal(sha512)");
+			tv = &sha512_tv_template[0];
+			break;
+		case 1:
+			mode_type = WD_DIGEST_HMAC;
+			printf("test alg: %s\n", "hmac(sha512)");
+			tv = &hmac_sha512_tv_template[0];
+			break;
+		}
+		tv->dsize = 64;
+		alg_type = WD_DIGEST_SHA512;
+		break;
+	case 7:
+		switch (g_alg_op_type) {
+		case 0:
+			mode_type = WD_DIGEST_NORMAL;
+			printf("test alg: %s\n", "normal(sha512_224)");
+			tv = &sha512_224_tv_template[0];
+			break;
+		case 1:
+			mode_type = WD_DIGEST_HMAC;
+			printf("test alg: %s\n", "hmac(sha512_224");
+			tv = &hmac_sha512_224_tv_template[0];
+			break;
+		}
+		tv->dsize = 28;
+		alg_type = WD_DIGEST_SHA512_224;
+		break;
+	case 8:
+		switch (g_alg_op_type) {
+		case 0:
+			mode_type = WD_DIGEST_NORMAL;
+			printf("test alg: %s\n", "normal(sha512_256)");
+			tv = &sha512_256_tv_template[0];
+			break;
+		case 1:
+			mode_type = WD_DIGEST_HMAC;
+			printf("test alg: %s\n", "hmac(sha512_256)");
+			tv = &hmac_sha512_256_tv_template[0];
+			break;
+		}
+		tv->dsize = 32;
+		alg_type = WD_DIGEST_SHA512_256;
+		break;
+	default:
+		printf("keylenth error, default test alg: %s\n", "normal(sm3)");
+		return -EINVAL;
 	}
+
 	if (g_ivlen == 1) {
 		tmp_tv = tv;
 		tv = &long_hash_tv_template[0];
@@ -1334,15 +1321,11 @@ out:
 	if (h_sess)
 		wd_digest_free_sess(h_sess);
 	digest_uninit_config();
-
 	return ret;
 }
 
 static void *digest_async_cb(void *data)
 {
-	// struct wd_digest_req *req = (struct wd_digest_req *)data;
-	// memcpy(&g_async_req, req, sizeof(struct wd_digest_req));
-
 	return NULL;
 }
 
@@ -1370,6 +1353,7 @@ void *digest_send_thread(void *data)
 	}
 
 	printf("Test digest multi send : %lu pkg !\n", cnt);
+
 	return NULL;
 }
 
@@ -1406,8 +1390,8 @@ void *digest_poll_thread(void *data)
 	printf("time_used:%0.0f us, send task num:%d\n", time_used, cnt);
 	speed = cnt / time_used * 1000000;
 	Perf = speed * req->in_bytes / 1024; //B->KB
-	printf("Pro-%d, thread_id-%d, speed:%0.3f ops, Perf: %ld KB/s\n", getpid(),
-			(int)syscall(__NR_gettid), speed, Perf);
+	printf("Pro-%d, thread_id-%d, speed:%0.3f ops, Perf: %ld KB/s\n",
+	       getpid(), (int)syscall(__NR_gettid), speed, Perf);
 	pthread_mutex_unlock(&test_sec_mutex);
 
 	return NULL;
@@ -1441,8 +1425,8 @@ void *digest_sync_send_thread(void *data)
 	printf("time_used:%0.0f us, send task num:%lld\n", time_used, td_data->send_num);
 	speed = td_data->send_num / time_used * 1000000;
 	Perf = speed * req->in_bytes / 1024; //B->KB
-	printf("Pro-%d, thread_id-%d, speed:%0.3f ops, Perf: %ld KB/s\n", getpid(),
-			(int)syscall(__NR_gettid), speed, Perf);
+	printf("Pro-%d, thread_id-%d, speed:%0.3f ops, Perf: %ld KB/s\n",
+	       getpid(), (int)syscall(__NR_gettid), speed, Perf);
 	pthread_mutex_unlock(&test_sec_mutex);
 
 	return NULL;
@@ -1540,7 +1524,6 @@ out:
 	if (h_sess)
 		wd_digest_free_sess(h_sess);
 	digest_uninit_config();
-
 	return ret;
 }
 
@@ -1613,7 +1596,8 @@ static int sec_digest_sync_multi(void)
 	td_data.recv_num = g_times;
 	td_data.sum_perf = 0;
 	for (i = 0; i < g_thread_num; i++) {
-		ret = pthread_create(&sendtd[i], NULL, digest_sync_send_thread, &td_data);
+		ret = pthread_create(&sendtd[i], NULL, digest_sync_send_thread,
+				     &td_data);
 		if (ret) {
 			printf("Create send thread fail!\n");
 			return ret;
@@ -1641,7 +1625,6 @@ out:
 	if (h_sess)
 		wd_digest_free_sess(h_sess);
 	digest_uninit_config();
-
 	return ret;
 }
 
@@ -1744,13 +1727,13 @@ out:
 	if (h_sess)
 		wd_digest_free_sess(h_sess);
 	digest_uninit_config();
-
 	return ret;
 }
 
-static void test_sec_cmd_parse(int argc, char *argv[], struct test_sec_option *option)
+static void test_sec_cmd_parse(int argc, char *argv[],
+			       struct test_sec_option *option)
 {
-    int option_index = 0;
+	int option_index = 0;
 	int c;
 
 	static struct option long_options[] = {
