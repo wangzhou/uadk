@@ -84,22 +84,6 @@ static pthread_mutex_t test_sec_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t system_test_thrds[NUM_THREADS];
 static thread_data_t thr_data[NUM_THREADS];
 
-static void hexdump(char *buff, unsigned int len)
-{
-	unsigned int i;
-	if (!buff) {
-		printf("hexdump input buff is NULL!");
-		return;
-	}
-
-	for (i = 0; i < len; i++) {
-		printf("\\0x%02x", buff[i]);
-		if ((i + 1) % 8 == 0)
-			printf("\n");
-	}
-	printf("\n");
-}
-
 int get_cipher_resource(struct cipher_testvec **alg_tv, int* alg, int* mode)
 {
 	struct cipher_testvec *tv;
@@ -394,7 +378,6 @@ static int test_sec_cipher_sync_once(void)
 	req.in_bytes = g_pktlen;
 
 	printf("req src--------->:\n");
-	hexdump(req.src, g_pktlen);
 	req.dst = malloc(BUFF_SIZE);
 	if (!req.dst) {
 		printf("req dst mem malloc failed!\n");
@@ -413,7 +396,6 @@ static int test_sec_cipher_sync_once(void)
 			memcpy(req.iv, tv->iv, strlen(tv->iv));
 		req.iv_bytes = strlen(tv->iv);
 		printf("cipher req iv--------->:\n");
-		hexdump(req.iv, req.iv_bytes);
 	}
 	req.out_bytes = tv->len;
 	req.out_buf_bytes = BUFF_SIZE;
@@ -430,7 +412,6 @@ static int test_sec_cipher_sync_once(void)
 		goto out;
 	}
 	printf("cipher req key--------->:\n");
-	// hexdump(h_sess->key, tv->klen);
 
 	while (cnt) {
 		ret = wd_do_cipher_sync(h_sess, &req);
@@ -438,7 +419,6 @@ static int test_sec_cipher_sync_once(void)
 	}
 
 	printf("Test cipher sync function: output dst-->\n");
-	hexdump(req.dst, req.in_bytes);
 
 out:
 	if (req.src)
@@ -501,7 +481,6 @@ static int test_sec_cipher_async_once(void)
 	req.in_bytes = g_pktlen;
 
 	printf("req src--------->:\n");
-	hexdump(req.src, g_pktlen);
 	req.dst = malloc(BUFF_SIZE);
 	if (!req.dst) {
 		printf("req dst mem malloc failed!\n");
@@ -520,7 +499,6 @@ static int test_sec_cipher_async_once(void)
 			memcpy(req.iv, tv->iv, strlen(tv->iv));
 		req.iv_bytes = strlen(tv->iv);
 		printf("cipher req iv--------->:\n");
-		hexdump(req.iv, req.iv_bytes);
 	}
 	req.out_bytes = tv->len;
 	req.out_buf_bytes = BUFF_SIZE;
@@ -596,10 +574,8 @@ static int test_sec_cipher_sync(void *arg)
 
 	pktlen = req->in_bytes;
 	printf("cipher req src--------->:\n");
-	hexdump(req->src, req->in_bytes);
 
 	printf("ivlen = %d, cipher req iv--------->:\n", req->iv_bytes);
-	hexdump(req->iv, req->iv_bytes);
 
 	ret = wd_cipher_set_key(h_sess, (const __u8*)tv->key, tv->klen);
 	if (ret) {
@@ -1266,7 +1242,6 @@ static int sec_digest_sync_once(void)
 	req.in_bytes = tv->psize;
 
 	printf("req src in--------->:\n");
-	hexdump(req.in, tv->psize);
 	req.out = malloc(BUFF_SIZE);
 	if (!req.out) {
 		printf("req dst out mem malloc failed!\n");
@@ -1291,10 +1266,8 @@ static int sec_digest_sync_once(void)
 			printf("sess set key failed!\n");
 			goto out;
 		}
-		struct wd_digest_sess *sess = (struct wd_digest_sess *)h_sess;
 		printf("------->tv key:%s\n", tv->key);
 		printf("digest sess key--------->:\n");
-		hexdump(sess->key, sess->key_bytes);
 	}
 
 	gettimeofday(&start_tval, NULL);
@@ -1311,7 +1284,6 @@ static int sec_digest_sync_once(void)
 	printf("time_used:%0.0f us, send task num:%lld\n", time_used, g_times);
 	printf("Pro-%d, thread_id-%d, speed:%0.3f ops, Perf: %ld KB/s\n", getpid(),
 			(int)syscall(__NR_gettid), speed, Perf);
-	hexdump(req.out, 64);
 
 out:
 	if (req.in)
@@ -1468,7 +1440,6 @@ static int sec_digest_async_once(void)
 	req.in_bytes = tv->psize;
 
 	printf("req src in--------->:\n");
-	hexdump(req.in, tv->psize);
 	req.out = malloc(BUFF_SIZE);
 	if (!req.out) {
 		printf("req dst out mem malloc failed!\n");
@@ -1558,7 +1529,6 @@ static int sec_digest_sync_multi(void)
 	req.in_bytes = tv->psize;
 
 	printf("req src in--------->:\n");
-	hexdump(req.in, tv->psize);
 	req.out = malloc(BUFF_SIZE);
 	if (!req.out) {
 		printf("req dst out mem malloc failed!\n");
@@ -1582,10 +1552,8 @@ static int sec_digest_sync_multi(void)
 			printf("sess set key failed!\n");
 			goto out;
 		}
-		struct wd_digest_sess *sess = (struct wd_digest_sess *)h_sess;
 		printf("------->tv key:%s\n", tv->key);
 		printf("digest sess key--------->:\n");
-		hexdump(sess->key, sess->key_bytes);
 	}
 
 	td_data.h_sess = h_sess;
@@ -1616,7 +1584,7 @@ static int sec_digest_sync_multi(void)
 	printf("digest sync %u threads, speed:%llu ops, perf: %llu KB/s\n",
 		g_thread_num, td_data.sum_perf,
 		(td_data.sum_perf >> 10) * req.in_bytes);
-	hexdump(req.out, 64);
+
 out:
 	if (req.in)
 		free(req.in);
@@ -1664,7 +1632,6 @@ static int sec_digest_async_multi(void)
 	memcpy(req.in, tv->plaintext, tv->psize);
 	req.in_bytes = tv->psize;
 	printf("req src in--------->:\n");
-	hexdump(req.in, tv->psize);
 	req.out = malloc(BUFF_SIZE);
 	if (!req.out) {
 		printf("req dst out mem malloc failed!\n");
@@ -1718,7 +1685,6 @@ static int sec_digest_async_multi(void)
 		return ret;
 	}
 
-	hexdump(req.out, 64);
 out:
 	if (req.in)
 		free(req.in);
