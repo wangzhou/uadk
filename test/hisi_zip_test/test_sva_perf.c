@@ -19,6 +19,12 @@
 #include "test_lib.h"
 #include "sched_sample.h"
 
+/*
+ * 0: 4u - 8u, 1: 8u, 2: 16u, 3: 32, 4: 65, 5: 131, 6: 262, 7: 524, 8: 1048
+ */
+unsigned long iopf_stat[8];
+struct timeval start_tval, end_tval;
+
 enum hizip_stats_variable {
 	ST_SETUP_TIME,
 	ST_RUN_TIME,
@@ -313,6 +319,7 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 	size_t defl_size, infl_size;
 	struct hizip_test_info info = {0};
 	struct wd_sched *sched = NULL;
+	int i;
 
 	info.stats = stats;
 	info.opts = opts;
@@ -431,6 +438,10 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 		infl_buf = NULL;
 	} else {
 		ret = hizip_verify_random_output(opts, &info);
+	}
+
+	for (i = 0; i < 8; i++) {
+		WD_ERR("--> %d: hit number: %lu\n", i, iopf_stat[i]);
 	}
 
 	usleep(10);

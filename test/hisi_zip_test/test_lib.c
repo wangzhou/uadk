@@ -9,6 +9,9 @@
 
 #define SCHED_RR_NAME	"sched_rr"
 
+extern unsigned long iopf_stat[8];
+extern struct timeval start_tval, end_tval;
+
 enum alg_type {
 	HW_ZLIB  = 0x02,
 	HW_GZIP,
@@ -404,6 +407,7 @@ void *send_thread_func(void *arg)
 	handle_t h_sess = info->h_sess;
 	int j, ret;
 	size_t left;
+	size_t tc;
 
 	if (opts->op_type == WD_DIR_COMPRESS) {
 		src_block_size = opts->block_size;
@@ -433,7 +437,28 @@ void *send_thread_func(void *arg)
 				count++;
 				ret = wd_do_comp_async(h_sess, &info->req);
 			} else {
+				gettimeofday(&start_tval, NULL);
 				ret = wd_do_comp_sync(h_sess, &info->req);
+				gettimeofday(&end_tval, NULL);
+				tc = ((end_tval.tv_sec - start_tval.tv_sec) *
+				      1000000 + end_tval.tv_usec - start_tval.tv_usec);
+				if (tc > 4 && tc <= 8)
+					iopf_stat[0]++;
+				if (tc > 8 && tc <= 16)
+					iopf_stat[1]++;
+				if (tc > 16 && tc <= 32)
+					iopf_stat[2]++;
+				if (tc > 32 && tc <= 65)
+					iopf_stat[3]++;
+				if (tc > 65 && tc <= 131)
+					iopf_stat[4]++;
+				if (tc > 131 && tc <= 262)
+					iopf_stat[5]++;
+				if (tc > 262 && tc <= 524)
+					iopf_stat[6]++;
+				if (tc > 524 && tc <= 1048)
+					iopf_stat[7]++;
+
 				if (info->opts->faults & INJECT_SIG_WORK)
 					kill(getpid(), SIGTERM);
 			}
