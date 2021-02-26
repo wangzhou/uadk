@@ -387,8 +387,10 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 		 * Enhance performance in sva case
 		 * no impact to non-sva case
 		 */
-		memset(info.out_buf, 0, info.out_size);
+		memset(info.out_buf, 5, info.out_size);
 	}
+
+	printf("----> begin to test!\n");
 
 	if (!(opts->option & TEST_ZLIB)) {
 		ret = init_ctx_config(opts, &info, &sched);
@@ -399,6 +401,8 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 		if (opts->faults & INJECT_SIG_BIND)
 			kill(getpid(), SIGTERM);
 	}
+
+	sleep(30);
 
 	stat_start(&info);
 	create_threads(&info);
@@ -789,13 +793,13 @@ int main(int argc, char **argv)
 			case 't':
 				opts.option |= TEST_THP;
 				break;
-			case 'z':
-				opts.option |= TEST_ZLIB;
-				break;
 			default:
 				SYS_ERR_COND(1, "invalid argument to -o: '%s'\n", optarg);
 				break;
 			}
+			break;
+		case 'c':
+			opts.option |= TEST_ZLIB;
 			break;
 		case 'w':
 			opts.warmup_num = strtol(optarg, NULL, 0);
