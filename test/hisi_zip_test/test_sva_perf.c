@@ -289,7 +289,7 @@ static void stat_end(struct hizip_test_info *info)
 	stats->v[ST_COMPRESSION_RATIO] = (double)opts->total_len /
 					 info->total_out * 100;
 
-	total_len = opts->total_len * opts->compact_run_num;
+	total_len = opts->total_len * opts->compact_run_num * opts->thread_num;
 	stats->v[ST_SPEED] = (total_len * 1000) /
 				(1.024 * 1.024 * stats->v[ST_RUN_TIME]);
 
@@ -302,6 +302,100 @@ static void stat_end(struct hizip_test_info *info)
 	stats->v[ST_FAULTS] = stats->v[ST_MAJFLT] + stats->v[ST_MINFLT];
 }
 
+static void free_comp_data(struct hizip_test_info *info)
+{
+	struct hizip_test_thread_data *tmp = info->thread_data_array;
+	size_t defl_size = info->opts->total_len * EXPANSION_RATIO;
+	size_t infl_size = info->opts->total_len;
+	int thread_num = info->opts->thread_num;
+	int i;
+
+	for (i = 0; i < thread_num; i++) {
+		if (!tmp->in_buf)
+			break;
+
+		munmap(tmp->out_buf, defl_size);
+		tmp->out_buf = NULL;
+		munmap(tmp->in_buf, infl_size);
+		tmp->in_buf = NULL;
+		tmp++;
+	}
+}
+
+static int create_comp_data(struct hizip_test_info *info, bool is_comp)
+{
+	int thread_num = info->opts->thread_num;
+	struct test_options *opts = info->opts;
+	struct hizip_test_thread_data *tmp;
+	/*
+	 * Counter-intuitive: defl_size > infl_size, because random data is
+	 * incompressible and deflate may add a header. See comment in
+	 * hizip_prepare_random_input_data().
+	 */
+	size_t defl_size = info->opts->total_len * EXPANSION_RATIO;
+	size_t infl_size = info->opts->total_len;
+	void *uncomp, *comp;
+	size_t outbuf_size;
+	size_t produced;
+	int i, ret;
+
+	info->thread_data_array = calloc(thread_num, sizeof(*tmp));
+	if (!info->thread_data_array)
+		return -ENOMEM;
+
+	for (i = 0; i < thread_num; i++) {
+		tmp = info->thread_data_array + i;
+		uncomp = mmap_alloc(infl_size);
+		if (!uncomp) {
+			ret = -ENOMEM;
+			goto out;
+		}
+
+		comp = mmap_alloc(defl_size);
+		if (!comp) {
+			ret = -ENOMEM;
+			goto free_in_buf;
+		}
+
+		if (is_comp) {
+			hizip_prepare_random_input_data(uncomp, infl_size,
+							info->opts->block_size);
+			tmp->in_buf = uncomp;
+			tmp->out_buf = comp;
+			outbuf_size = defl_size;
+		} else {
+			/* Prepare a buffer of compressed data */
+			ret =
+			hizip_prepare_random_compressed_data(comp, defl_size,
+							     infl_size,
+							     &produced, opts);
+			tmp->in_buf = comp;
+			tmp->out_buf = uncomp;
+			outbuf_size = infl_size;
+		}
+
+		/*
+		 * memset buffer and trigger page fault early in the cpu instead
+		 * of later in the SMMU. Enhance performance in sva case
+		 */
+		if (opts->option & PERFORMANCE) {
+			memset(tmp->out_buf, 5, outbuf_size);
+		}
+
+		tmp->info = info;
+	}
+
+	return 0;
+
+free_in_buf:
+	free(tmp->in_buf);
+	tmp->in_buf = NULL;
+out:
+	free_comp_data(info);
+	free(info->thread_data_array);
+	return ret;
+}
+
 static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 {
 	static bool event_unavailable;
@@ -309,8 +403,6 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 	int ret = 0;
 	int nr_fds = 0;
 	int *perf_fds = NULL;
-	void *defl_buf, *infl_buf;
-	size_t defl_size, infl_size;
 	struct hizip_test_info info = {0};
 	struct wd_sched *sched = NULL;
 
@@ -321,46 +413,13 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 	if (!info.list)
 		return -EINVAL;
 
-	infl_size = opts->total_len;
-	infl_buf = mmap_alloc(infl_size);
-	if (!infl_buf) {
-		ret = -ENOMEM;
+	if (opts->op_type == WD_DIR_COMPRESS)
+		ret = create_comp_data(&info, 1);
+	else
+		ret = create_comp_data(&info, 0);
+
+	if (ret)
 		goto out_list;
-	}
-
-	/*
-	 * Counter-intuitive: defl_size > infl_size, because random data is
-	 * incompressible and deflate may add a header. See comment in
-	 * hizip_prepare_random_input_data().
-	 */
-	defl_size = opts->total_len * EXPANSION_RATIO;
-	defl_buf = mmap_alloc(defl_size);
-	if (!defl_buf) {
-		ret = -ENOMEM;
-		goto out_with_infl_buf;
-	}
-
-	if (opts->op_type == WD_DIR_COMPRESS) {
-		hizip_prepare_random_input_data(infl_buf, infl_size,
-						opts->block_size);
-		info.in_buf = infl_buf;
-		info.in_size = infl_size;
-		info.out_buf = defl_buf;
-		info.out_size = defl_size;
-	} else {
-		size_t produced;
-
-		/* Prepare a buffer of compressed data */
-		ret = hizip_prepare_random_compressed_data(defl_buf, defl_size,
-							   infl_size, &produced,
-							   opts);
-		if (ret)
-			goto out_with_defl_buf;
-		info.in_buf = defl_buf;
-		info.in_size = defl_size;
-		info.out_buf = infl_buf;
-		info.out_size = infl_size;
-	}
 
 	enable_thp(opts, &info);
 
@@ -373,21 +432,11 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 
 	stat_setup(&info);
 
-	if (opts->option & PERFORMANCE) {
-		/* hack:
-		 * memset buffer and trigger page fault early in the cpu
-		 * instead of later in the SMMU
-		 * Enhance performance in sva case
-		 * no impact to non-sva case
-		 */
-		memset(info.out_buf, 5, info.out_size);
-	}
-
 	if (!(opts->option & TEST_ZLIB)) {
 		ret = init_ctx_config(opts, &info, &sched);
 		if (ret) {
 			WD_ERR("hizip init fail with %d\n", ret);
-			goto out_with_defl_buf;
+			goto free_data;
 		}
 		if (opts->faults & INJECT_SIG_BIND)
 			kill(getpid(), SIGTERM);
@@ -400,47 +449,15 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 	stat_end(&info);
 	stats->v[ST_IOPF] = perf_event_put(perf_fds, nr_fds);
 
-	if (opts->faults & INJECT_TLB_FAULT) {
-		/*
-		 * Now unmap the buffers and retry the access. Normally we
-		 * should get an access fault, but if the TLB wasn't properly
-		 * invalidated, the access succeeds and corrupts memory!
-		 * This test requires small jobs, to make sure that we reuse
-		 * the same TLB entry between the tests. Run for example with
-		 * "-s 0x1000 -b 0x1000".
-		 */
-		ret = munmap(infl_buf, infl_size);
-		if (ret)
-			perror("unmap()");
-
-		/* A warning if the parameters might produce false positives */
-		if (opts->total_len > 0x54000)
-			fprintf(stderr, "NOTE: test might trash the TLB\n");
-
-		create_threads(&info);
-		ret = attach_threads(&info);
-		if (!ret) {
-			WD_ERR("TLB test failed, broken invalidate! "
-			       "VA=%p-%p\n", infl_buf, infl_buf +
-			       opts->total_len * EXPANSION_RATIO - 1);
-			ret = -EFAULT;
-		} else {
-			printf("TLB test success, returned %d\n", ret);
-			ret = 0;
-		}
-		infl_buf = NULL;
-	} else {
-		ret = hizip_verify_random_output(opts, &info);
-	}
+	ret = hizip_verify_random_output(opts, &info);
 
 	usleep(10);
 	if (!(opts->option & TEST_ZLIB))
 		uninit_config(&info, sched);
 	free(info.threads);
-out_with_defl_buf:
-	munmap(defl_buf, defl_size);
-out_with_infl_buf:
-	munmap(infl_buf, infl_size);
+
+free_data:
+	free_comp_data(&info);
 out_list:
 	wd_free_list_accels(info.list);
 	return ret;
@@ -691,9 +708,9 @@ static int run_test(struct test_options *opts, FILE *source, FILE *dest)
 	comp_std(&std, &variation, &avg, n);
 
 	fprintf(stderr,
-		"Compress bz=%d nb=%u×%lu, speed=%.1f MB/s (±%0.1f%% N=%d) overall=%.1f MB/s (±%0.1f%%)\n",
+		"Compress bz=%d nb=%u×%lu×%d(loop * package * thread), speed=%.1f MB/s (±%0.1f%% N=%d) overall=%.1f MB/s (±%0.1f%%)\n",
 		opts->block_size, opts->compact_run_num,
-		opts->total_len / opts->block_size,
+		opts->total_len / opts->block_size, opts->thread_num,
 		avg.v[ST_SPEED], variation.v[ST_SPEED], n,
 		avg.v[ST_TOTAL_SPEED], variation.v[ST_TOTAL_SPEED]);
 

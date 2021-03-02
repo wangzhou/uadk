@@ -80,18 +80,25 @@ struct test_options {
 
 };
 
+struct hizip_test_thread_data {
+	handle_t h_sess;
+	struct wd_comp_req req;
+	char *in_buf;
+	char *out_buf;
+	struct hizip_test_info *info;
+};
+
 struct hizip_test_info {
 	struct test_options *opts;
 	char *in_buf, *out_buf;
 	size_t in_size, out_size;
 	size_t total_out;
 	struct uacce_dev_list *list;
-	handle_t h_sess;
 	struct wd_ctx_config ctx_conf;
-	struct wd_comp_req req;
 	int thread_nums;
 	int thread_attached;
 	pthread_t *threads;
+	struct hizip_test_thread_data *thread_data_array;
 	struct hizip_stats *stats;
 	struct {
 		struct timespec setup_time;

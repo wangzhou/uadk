@@ -398,10 +398,11 @@ static void *async_cb(struct wd_comp_req *req, void *data)
 
 void *send_thread_func(void *arg)
 {
-	struct hizip_test_info *info = (struct hizip_test_info *)arg;
+	struct hizip_test_thread_data *tmp = arg;
+	struct hizip_test_info *info = tmp->info;
 	struct test_options *opts = info->opts;
 	size_t src_block_size, dst_block_size;
-	handle_t h_sess = info->h_sess;
+	handle_t h_sess = tmp->h_sess;
 	int j, ret;
 	size_t left;
 
@@ -415,45 +416,45 @@ void *send_thread_func(void *arg)
 
 	for (j = 0; j < opts->compact_run_num; j++) {
 		if (opts->option & TEST_ZLIB) {
-			ret = zlib_deflate(info->out_buf, info->out_size,
-					   info->in_buf, info->in_size,
+			ret = zlib_deflate(tmp->out_buf, info->out_size,
+					   tmp->in_buf, info->in_size,
 					   &info->total_out, opts->alg_type);
 			continue;
 		}
 		/* not TEST_ZLIB */
 		left = opts->total_len;
-		info->req.src = info->in_buf;
-		info->req.dst = info->out_buf;
+		tmp->req.src = tmp->in_buf;
+		tmp->req.dst = tmp->out_buf;
 		while (left > 0) {
-			info->req.src_len = src_block_size;
-			info->req.dst_len = dst_block_size;
-			info->req.cb = async_cb;
-			info->req.cb_param = &info->req;
+			tmp->req.src_len = src_block_size;
+			tmp->req.dst_len = dst_block_size;
+			tmp->req.cb = async_cb;
+			tmp->req.cb_param = &tmp->req;
 			if (opts->sync_mode) {
 				count++;
-				ret = wd_do_comp_async(h_sess, &info->req);
+				ret = wd_do_comp_async(h_sess, &tmp->req);
 			} else {
-				ret = wd_do_comp_sync(h_sess, &info->req);
+				ret = wd_do_comp_sync(h_sess, &tmp->req);
 				if (info->opts->faults & INJECT_SIG_WORK)
 					kill(getpid(), SIGTERM);
 			}
 			if (ret < 0) {
 				WD_ERR("do comp test fail with %d\n", ret);
 				return (void *)(uintptr_t)ret;
-			} else if (info->req.status) {
-				return (void *)(uintptr_t)info->req.status;
+			} else if (tmp->req.status) {
+				return (void *)(uintptr_t)tmp->req.status;
 			}
 			if (opts->op_type == WD_DIR_COMPRESS)
 				left -= src_block_size;
 			else
 				left -= dst_block_size;
-			info->req.src += src_block_size;
+			tmp->req.src += src_block_size;
 			/*
 			 * It's BLOCK (STATELESS) mode, so user needs to
 			 * combine output buffer by himself.
 			 */
-			info->req.dst += dst_block_size;
-			info->total_out += info->req.dst_len;
+			tmp->req.dst += dst_block_size;
+			info->total_out += tmp->req.dst_len;
 		}
 	}
 	return NULL;
@@ -510,40 +511,56 @@ static void *poll_thread_func(void *arg)
 int create_threads(struct hizip_test_info *info)
 {
 	pthread_attr_t attr;
-	int ret;
+	int ret, i, j;
 
 	count = 0;
 	info->thread_attached = 0;
-	info->thread_nums = 2;
+	info->thread_nums = info->opts->thread_num + 1;
 	info->threads = calloc(1, info->thread_nums * sizeof(pthread_t));
 	if (!info->threads)
 		return -ENOMEM;
+
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 	/* polling thread is the first one */
 	ret = pthread_create(&info->threads[0], &attr, poll_thread_func, info);
 	if (ret < 0) {
+		free(info->threads);
 		WD_ERR("fail to create poll thread (%d)\n", ret);
 		return ret;
 	}
-	ret = pthread_create(&info->threads[1], &attr, send_thread_func, info);
-	if (ret < 0)
-		return ret;
+
+	for (i = 0; i < info->opts->thread_num; i++) {
+		ret = pthread_create(&info->threads[i + 1], &attr,
+				     send_thread_func,
+				     info->thread_data_array + i);
+		if (ret < 0) {
+			for (j = 0; j < i; j++)
+				pthread_cancel(info->threads[i + 1]);
+			return ret;
+		}
+	}
+
 	pthread_attr_destroy(&attr);
 	g_conf = &info->ctx_conf;
+
 	return 0;
 }
 
 int attach_threads(struct hizip_test_info *info)
 {
-	int ret;
+	int ret, i;
 	void *tret;
 
 	if (info->thread_attached)
 		return 0;
-	ret = pthread_join(info->threads[1], &tret);
-	if (ret < 0)
-		WD_ERR("Fail on send thread with %d\n", ret);
+
+	for (i = 0; i < info->opts->thread_num; i++) {
+		ret = pthread_join(info->threads[i + 1], &tret);
+		if (ret < 0)
+			WD_ERR("Fail on send thread with %d\n", ret);
+	}
+
 	ret = pthread_join(info->threads[0], NULL);
 	if (ret < 0)
 		WD_ERR("Fail on poll thread with %d\n", ret);
@@ -610,8 +627,9 @@ int init_ctx_config(struct test_options *opts, void *priv,
 {
 	struct wd_comp_sess_setup setup;
 	struct hizip_test_info *info = priv;
+	struct hizip_test_thread_data *tmp = info->thread_data_array;
 	struct wd_ctx_config *ctx_conf = &info->ctx_conf;
-	int i, j, ret = -EINVAL;
+	int i, j, k, m, ret = -EINVAL;
 	int q_num;
 
 
@@ -680,11 +698,19 @@ int init_ctx_config(struct test_options *opts, void *priv,
 	setup.alg_type = opts->alg_type;
 	setup.mode = opts->sync_mode;
 	setup.op_type = opts->op_type;
-	info->h_sess = wd_comp_alloc_sess(&setup);
-	info->req.op_type = opts->op_type;
-	if (!info->h_sess) {
-		ret = -EINVAL;
-		goto out_sess;
+
+	for (k = 0; k < opts->thread_num; k++) {
+		tmp->h_sess = wd_comp_alloc_sess(&setup);
+		if (!tmp->h_sess) {
+			tmp = info->thread_data_array;
+			for (m = 0; m < k; m++) {
+				wd_comp_free_sess(tmp->h_sess);
+				tmp++;
+			}
+			goto out_sess;
+		}
+		tmp->req.op_type = opts->op_type;
+		tmp++;
 	}
 
 	return ret;
@@ -705,10 +731,16 @@ out_sched:
 void uninit_config(void *priv, struct wd_sched *sched)
 {
 	struct hizip_test_info *info = priv;
+	struct test_options *opts = info->opts;
+	struct hizip_test_thread_data *tmp = info->thread_data_array;
 	struct wd_ctx_config *ctx_conf = &info->ctx_conf;
 	int i;
 
-	wd_comp_free_sess(info->h_sess);
+	for (i = 0; i < opts->thread_num; i++) {
+		wd_comp_free_sess(tmp->h_sess);
+		tmp++;
+	}
+
 	wd_comp_uninit();
 	for (i = 0; i < ctx_conf->ctx_num; i++)
 		wd_release_ctx(ctx_conf->ctxs[i].ctx);
