@@ -402,7 +402,7 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 			kill(getpid(), SIGTERM);
 	}
 
-	sleep(30);
+//	sleep(30);
 
 	stat_start(&info);
 	create_threads(&info);
