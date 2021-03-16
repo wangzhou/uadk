@@ -708,7 +708,7 @@ static int run_test(struct test_options *opts, FILE *source, FILE *dest)
 	comp_std(&std, &variation, &avg, n);
 
 	fprintf(stderr,
-		"Compress bz=%d nb=%u×%lu×%d(loop * package * thread), speed=%.1f MB/s (±%0.1f%% N=%d) overall=%.1f MB/s (±%0.1f%%)\n",
+		"Compress bz=%d nb=%uloop×%lupackage×%dthread, speed=%.1f MB/s (±%0.1f%% N=%d) overall=%.1f MB/s (±%0.1f%%)\n",
 		opts->block_size, opts->compact_run_num,
 		opts->total_len / opts->block_size, opts->thread_num,
 		avg.v[ST_SPEED], variation.v[ST_SPEED], n,
