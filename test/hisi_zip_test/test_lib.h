@@ -57,6 +57,7 @@ struct test_options {
 	bool is_decomp;
 	bool is_stream;
 	bool is_file;
+	bool use_env;
 
 	int warmup_num;
 
@@ -185,7 +186,7 @@ static inline void hizip_test_adjust_len(struct test_options *opts)
 		opts->block_size * opts->block_size;
 }
 
-#define COMMON_OPTSTRING "hb:n:q:l:FSs:Vvzt:m:dac"
+#define COMMON_OPTSTRING "hb:n:q:l:FSs:Vvzt:m:dace"
 
 #define COMMON_HELP "%s [opts]\n"					\
 	"  -b <size>     block size\n"					\
@@ -203,6 +204,7 @@ static inline void hizip_test_adjust_len(struct test_options *opts)
 	"  -m <mode>     mode of queues: 0 sync, 1 async\n"		\
 	"  -d		 test decompression, default compression\n"	\
 	"  -c		 use cpu to do zlib\n"				\
+	"  -e		 use wd comp environment variables\n"		\
 	"\n\n"
 
 int parse_common_option(const char opt, const char *optarg,

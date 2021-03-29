@@ -313,13 +313,16 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 	size_t defl_size, infl_size;
 	struct hizip_test_info info = {0};
 	struct wd_sched *sched = NULL;
+	struct wd_comp_sess_setup setup;
 
 	info.stats = stats;
 	info.opts = opts;
 
-	info.list = get_dev_list(opts, 1);
-	if (!info.list)
-		return -EINVAL;
+	if (!opts->use_env) {
+		info.list = get_dev_list(opts, 1);
+		if (!info.list)
+			return -EINVAL;
+	}
 
 	infl_size = opts->total_len;
 	infl_buf = mmap_alloc(infl_size);
@@ -383,7 +386,7 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 		memset(info.out_buf, 5, info.out_size);
 	}
 
-	if (!(opts->option & TEST_ZLIB)) {
+	if (!(opts->option & TEST_ZLIB) && !opts->use_env) {
 		ret = init_ctx_config(opts, &info, &sched);
 		if (ret) {
 			WD_ERR("hizip init fail with %d\n", ret);
@@ -391,6 +394,18 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 		}
 		if (opts->faults & INJECT_SIG_BIND)
 			kill(getpid(), SIGTERM);
+	}
+
+	if (opts->use_env) {
+		wd_comp_env_init();
+
+		/* below code is copied from init_ctx_config */
+		memset(&setup, 0, sizeof(struct wd_comp_sess_setup));
+		setup.alg_type = opts->alg_type;
+		setup.mode = opts->sync_mode;
+		setup.op_type = opts->op_type;
+		info.h_sess = wd_comp_alloc_sess(&setup);
+		info.req.op_type = opts->op_type;
 	}
 
 	stat_start(&info);
@@ -434,15 +449,18 @@ static int run_one_test(struct test_options *opts, struct hizip_stats *stats)
 	}
 
 	usleep(10);
-	if (!(opts->option & TEST_ZLIB))
+	if (!(opts->option & TEST_ZLIB) && !opts->use_env)
 		uninit_config(&info, sched);
+	else if (opts->use_env)
+		wd_comp_env_uninit();
 	free(info.threads);
 out_with_defl_buf:
 	munmap(defl_buf, defl_size);
 out_with_infl_buf:
 	munmap(infl_buf, infl_size);
 out_list:
-	wd_free_list_accels(info.list);
+	if (!opts->use_env)
+		wd_free_list_accels(info.list);
 	return ret;
 }
 
@@ -752,6 +770,7 @@ int main(int argc, char **argv)
 		.display_stats		= STATS_PRETTY,
 		.children		= 0,
 		.faults			= 0,
+		.use_env		= 0,
 	};
 	int show_help = 0;
 	int opt;
@@ -814,6 +833,9 @@ int main(int argc, char **argv)
 				SYS_ERR_COND(1, "invalid argument to -k: '%s'\n", optarg);
 				break;
 			}
+			break;
+		case 'e':
+			opts.use_env = 1;
 			break;
 		default:
 			show_help = parse_common_option(opt, optarg, &opts);

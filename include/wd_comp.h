@@ -17,6 +17,7 @@ enum wd_comp_alg_type {
 enum wd_comp_op_type {
 	WD_DIR_COMPRESS,	/* session for compression */
 	WD_DIR_DECOMPRESS,	/* session for decompression */
+	WD_DIR_NUM,
 };
 
 enum wd_comp_level {
@@ -125,5 +126,16 @@ extern int wd_comp_poll(__u32 expt, __u32 *count);
  */
 extern int wd_do_comp_sync2(handle_t h_sess, struct wd_comp_req *req);
 
+/**
+ * wd_comp_env_init() - Init ctx and schedule resources according to wd comp
+ * 			environment variables.
+ *
+ * More information, please see docs/wd_environment_variable.
+ */
+int wd_comp_env_init(void);
 
+/**
+ * wd_comp_env_uninit() - UnInit ctx and schedule resources set by above init.
+ */
+void wd_comp_env_uninit(void);
 #endif /* __WD_COMP_H */

@@ -525,12 +525,18 @@ int create_threads(struct hizip_test_info *info)
 		return -ENOMEM;
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-	/* polling thread is the first one */
-	ret = pthread_create(&info->threads[0], &attr, poll_thread_func, info);
-	if (ret < 0) {
-		WD_ERR("fail to create poll thread (%d)\n", ret);
-		return ret;
+
+	/* we assume alway enable internal polling thread when enabling env */
+	if (!info->opts->use_env) {
+		/* polling thread is the first one */
+		ret = pthread_create(&info->threads[0], &attr,
+				     poll_thread_func, info);
+		if (ret < 0) {
+			WD_ERR("fail to create poll thread (%d)\n", ret);
+			return ret;
+		}
 	}
+
 	ret = pthread_create(&info->threads[1], &attr, send_thread_func, info);
 	if (ret < 0)
 		return ret;

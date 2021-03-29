@@ -276,8 +276,10 @@ static __u32 sample_sched_pick_next_ctx(handle_t sched_ctx, const void *req,
 	}
 
 	region = sample_sched_get_ctx_range(ctx, key);
-	if (!region)
+	if (!region) {
+		WD_ERR("ERROR: %s fail to get ctx range !\n", __FUNCTION__);
 		return INVALID_POS;
+	}
 
 	/*
 	 * Notice: The second para now is a stub, we must alloc memery for it
@@ -424,11 +426,13 @@ struct wd_sched *sample_sched_alloc(__u8 sched_type, __u8 type_num, __u8 numa_nu
 		return NULL;
 	}
 
+	/* hack: should remove this and allow user to poll by ctx directly */
+#if 0
 	if (!func) {
 		WD_ERR("Error: %s poll_func is null!\n", __FUNCTION__);
 		return NULL;
 	}
-
+#endif
 	if (!numa_num) {
 		WD_ERR("Warning: %s set numa number as %d!\n", __FUNCTION__,
 		       MAX_NUMA_NUM);
