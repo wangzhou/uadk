@@ -49,4 +49,5 @@ struct wd_sched *sample_sched_alloc(__u8 sched_type, __u8 type_num, __u8 numa_nu
  */
 void sample_sched_release(struct wd_sched *sched);
 
+void clear_valid(handle_t sched_ctx, struct sched_key *key, __u32 ctx_index);
 #endif

@@ -7,6 +7,7 @@
 #include "wd_cipher.h"
 #include "include/drv/wd_cipher_drv.h"
 #include "wd_util.h"
+#include "include/sched_sample.h"
 
 #define XTS_MODE_KEY_DIVISOR	2
 #define SM4_KEY_SIZE		16
@@ -408,6 +409,9 @@ int wd_do_cipher_sync(handle_t h_sess, struct wd_cipher_req *req)
 			}
 		}
 	} while (ret < 0);
+
+	clear_valid(wd_cipher_setting.sched.h_sched_ctx, &key, idx);
+
 	pthread_spin_unlock(&ctx->lock);
 
 	return 0;

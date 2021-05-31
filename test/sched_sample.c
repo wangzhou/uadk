@@ -23,6 +23,7 @@ struct sched_ctx_region {
 	__u32 end;
 	__u32 last;
 	bool valid;
+	char *valid_flag;
 	pthread_mutex_t lock;
 };
 
@@ -138,9 +139,20 @@ static void sample_get_para_rr(const void *req, void *para)
 static __u32 sample_get_next_pos_rr(struct sched_ctx_region *region,
 				    void *para)
 {
+	int num = region->end - region->begin + 1;
 	__u32 pos;
+	int i;
 
 	pthread_mutex_lock(&region->lock);
+
+	/* Let's find first valid ctx */
+	for (i = 0; i < num; i++) {
+		if (!__atomic_test_and_set(&region->valid_flag[i],
+					   __ATOMIC_RELEASE)) {
+			pthread_mutex_unlock(&region->lock);
+			return i + region->begin;
+		}
+	}
 
 	pos = region->last;
 
@@ -346,6 +358,7 @@ int sample_sched_fill_data(const struct wd_sched *sched, int numa_id,
 {
 	struct sample_sched_info *sched_info;
 	struct sample_sched_ctx *sched_ctx;
+	char *p;
 
 	if (!sched || !sched->h_sched_ctx) {
 		WD_ERR("ERROR: %s para err: sched of h_sched_ctx is null\n",
@@ -376,6 +389,11 @@ int sample_sched_fill_data(const struct wd_sched *sched, int numa_id,
 	sched_info[numa_id].ctx_region[mode][type].last = begin;
 	sched_info[numa_id].ctx_region[mode][type].valid = true;
 	sched_info[numa_id].valid = true;
+
+	p = calloc(1, sizeof(char) * (end - begin + 1));
+	if (!p)
+		WD_ERR("ERROR: failed to allocate valid flag, only effect performance\n");
+	sched_info[numa_id].ctx_region[mode][type].valid_flag = p;
 
 	pthread_mutex_init(&sched_info[numa_id].ctx_region[mode][type].lock,
 			   NULL);
@@ -473,4 +491,20 @@ struct wd_sched *sample_sched_alloc(__u8 sched_type, __u8 type_num, __u8 numa_nu
 err_out:
 	sample_sched_release(sched);
 	return NULL;
+}
+
+void clear_valid(handle_t sched_ctx, struct sched_key *key, __u32 ctx_index)
+{
+
+	struct sample_sched_ctx *ctx = (struct sample_sched_ctx*)sched_ctx;
+	struct sched_ctx_region *region = NULL;
+
+	region = sample_sched_get_ctx_range(ctx, key);
+	if (!region) {
+		WD_ERR("Error: failed to find region!\n");
+		return;
+	}
+
+	__atomic_clear(&region->valid_flag[ctx_index - region->begin],
+		       __ATOMIC_RELEASE);
 }
