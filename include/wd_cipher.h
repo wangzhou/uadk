@@ -65,6 +65,7 @@ struct wd_cipher_req;
 typedef void *wd_alg_cipher_cb_t(struct wd_cipher_req *req, void *cb_param);
 
 struct wd_cipher_sess {
+	__u32 id;
 	char			*alg_name;
   	enum wd_cipher_alg alg;
 	enum wd_cipher_mode mode;
