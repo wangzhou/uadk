@@ -360,7 +360,7 @@ int wd_do_cipher_sync(handle_t h_sess, struct wd_cipher_req *req)
 	struct wd_cipher_sess *sess = (struct wd_cipher_sess *)h_sess;
 	struct wd_ctx_internal *ctx;
 	struct wd_cipher_msg msg;
-	struct sched_key key;
+	//struct sched_key key;
 	__u64 recv_cnt = 0;
 	__u32 idx;
 	int ret;
@@ -371,9 +371,9 @@ int wd_do_cipher_sync(handle_t h_sess, struct wd_cipher_req *req)
 		return ret;
 	}
 
-	key.mode = CTX_MODE_SYNC;
-	key.type = 0;
-	key.numa_id = sess->numa;
+//	key.mode = CTX_MODE_SYNC;
+//	key.type = 0;
+//	key.numa_id = sess->numa;
 	idx = sess->id - 1;
 //	idx = wd_cipher_setting.sched.pick_next_ctx(
 //		     wd_cipher_setting.sched.h_sched_ctx, req, &key);
@@ -414,8 +414,6 @@ int wd_do_cipher_sync(handle_t h_sess, struct wd_cipher_req *req)
 			}
 		}
 	} while (ret < 0);
-
-	clear_valid(wd_cipher_setting.sched.h_sched_ctx, &key, idx);
 
 	pthread_spin_unlock(&ctx->lock);
 
