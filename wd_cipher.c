@@ -365,6 +365,7 @@ int wd_do_cipher_sync(handle_t h_sess, struct wd_cipher_req *req)
 	__u32 idx;
 	int ret;
 
+	memset(req->dst, 5, 2);
 	ret = wd_cipher_check_params(h_sess, req, CTX_MODE_SYNC);
 	if (ret) {
 		WD_ERR("failed to check cipher params!\n");
